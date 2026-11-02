@@ -1,0 +1,792 @@
+import { DB } from './db.js';
+import { TTS } from './tts.js';
+import { SpeechInput, compareWords } from './asr.js';
+import { validatePack, parseImport, readFileText, downloadJSON } from './import.js';
+
+const $ = id => document.getElementById(id);
+const speech = new SpeechInput();
+const mediaTheme = window.matchMedia('(prefers-color-scheme: dark)');
+const state = {
+  packs: [], packId: '', progress: new Map(), weakWords: [], demo: null,
+  moduleId: 'all', filter: 'all', index: 0, filtered: [], reveal: false,
+  view: 'learn', practice: null, practiceBusy: false, scenarioBusy: false,
+  generation: 0, listeningFor: null, scene: null, sceneMode: 'voice',
+  rate: 0.85, voiceURI: '', theme: 'system', importCandidate: null,
+  importGeneration: 0, importing: false, weakLimit: 40,
+  offlineReady: false, waitingWorker: null, updateRequested: false,
+};
+// Serialize attempt increments for the same learning item across both views.
+const attemptWrites = new Map();
+
+const sceneInfo = {
+  exhibition: { title: '展会接待', description: '了解客户需求，介绍产品，再约定下一步。' },
+  negotiation: { title: '价格谈判', description: '练习数量、配置与报价条件，让讨论有重点。' },
+  complaint: { title: '客诉处理', description: '先核对事实和证据，再把处理步骤说清楚。' },
+};
+
+function node(tag, className, text) {
+  const result = document.createElement(tag);
+  if (className) result.className = className;
+  if (text !== undefined) result.textContent = String(text);
+  return result;
+}
+function key(packId, itemId) { return `${packId}\u0000${itemId}`; }
+function currentPack() { return state.packs.find(pack => pack.id === state.packId); }
+function flatten(pack) {
+  return pack ? pack.modules.flatMap(module => module.items.map(item => ({
+    ...item, packId: pack.id, moduleId: module.id, moduleName: module.module,
+  }))) : [];
+}
+function progressFor(item) {
+  return state.progress.get(key(item.packId, item.id)) || { status: 'new', favorite: false, attempts: 0, lastScore: null };
+}
+function currentItem() { return state.filtered[state.index] || null; }
+function errorMessage(error) { return error instanceof Error ? error.message : String(error); }
+let toastTimer;
+function toast(message) {
+  clearTimeout(toastTimer);
+  $('toast').textContent = message;
+  $('toast').hidden = false;
+  toastTimer = setTimeout(() => { $('toast').hidden = true; }, 6500);
+}
+function report(error) { toast(errorMessage(error)); }
+function bind(id, event, callback) {
+  $(id).addEventListener(event, e => {
+    try {
+      const result = callback(e);
+      if (result && typeof result.catch === 'function') result.catch(report);
+    } catch (error) { report(error); }
+  });
+}
+
+function applyTheme() {
+  const dark = state.theme === 'dark' || (state.theme === 'system' && mediaTheme.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  $('theme-color').content = dark ? '#0d1823' : '#0C6DB2';
+  $('theme-select').value = state.theme;
+}
+
+function abortAudio() {
+  state.generation += 1;
+  state.listeningFor = null;
+  speech.abort();
+  TTS.cancel();
+  updateRecordingUI();
+}
+function speakText(text) {
+  // No await before this call: iOS requires synthesis in the user's click chain.
+  state.listeningFor = null;
+  speech.abort();
+  updateRecordingUI();
+  return TTS.speak(text, {
+    rate: state.rate, voiceURI: state.voiceURI,
+    onError: message => toast(message),
+  });
+}
+function updateVoices(voices = TTS.listVoices()) {
+  const select = $('voice-select');
+  const options = [];
+  if (!voices.length) {
+    const option = node('option', '', TTS.supported ? '尚未找到本地英语语音' : '当前浏览器不支持系统朗读');
+    option.value = '';
+    options.push(option);
+    $('voice-status').textContent = '只使用设备本地英语语音。可先安装系统英语声音，返回后再次点击发音。';
+  } else {
+    for (const voice of voices) {
+      const option = node('option', '', `${voice.name} · ${voice.lang} · 本地`);
+      option.value = voice.voiceURI;
+      options.push(option);
+    }
+    $('voice-status').textContent = '优先使用本地美式英语声音；语音质量取决于设备已安装的声音。';
+  }
+  select.replaceChildren(...options);
+  const selected = voices.find(voice => voice.voiceURI === state.voiceURI) || voices[0];
+  select.value = selected ? selected.voiceURI : '';
+  select.disabled = !voices.length;
+}
+function updateRecordingUI() {
+  const active = speech.active;
+  $('start-practice').disabled = !speech.supported || active || state.practiceBusy || !state.practice;
+  $('stop-practice').disabled = !(active && state.listeningFor === 'practice');
+  $('start-scenario-voice').disabled = !speech.supported || active || state.scenarioBusy || !state.scene;
+  $('stop-scenario-voice').disabled = !(active && state.listeningFor === 'scenario');
+  $('compare-practice').disabled = state.practiceBusy || active || !state.practice;
+  $('check-scenario').disabled = state.scenarioBusy || active || !state.scene;
+  $('next-scenario').disabled = state.scenarioBusy || active || !state.scene?.checked;
+  $('start-practice').parentElement.classList.toggle('is-recording', active && state.listeningFor === 'practice');
+  $('scenario-voice-tools').classList.toggle('is-recording', active && state.listeningFor === 'scenario');
+}
+
+function renderPackControls() {
+  const selected = state.packId;
+  $('pack-select').replaceChildren(...state.packs.map(pack => {
+    const option = node('option', '', pack.pack_name);
+    option.value = pack.id;
+    return option;
+  }));
+  $('pack-select').value = selected;
+  const pack = currentPack();
+  $('pack-description').textContent = pack ? `${pack.modules.length} 个模块 · ${flatten(pack).length} 条内容 · ${pack.version}` : '';
+  const all = node('option', '', '全部模块'); all.value = 'all';
+  $('module-filter').replaceChildren(all, ...(pack?.modules || []).map(module => {
+    const option = node('option', '', module.module);
+    option.value = module.id;
+    return option;
+  }));
+  if (!pack?.modules.some(module => module.id === state.moduleId)) state.moduleId = 'all';
+  $('module-filter').value = state.moduleId;
+  $('status-filter').value = state.filter;
+}
+function renderSummary() {
+  const items = flatten(currentPack());
+  const records = items.map(progressFor);
+  $('mastered-count').textContent = records.filter(p => p.status === 'mastered').length;
+  $('review-count').textContent = records.filter(p => p.status === 'review').length;
+  $('favorite-count').textContent = records.filter(p => p.favorite).length;
+  const today = new Date().toDateString();
+  const practiced = [...state.progress.values()].filter(p => p.lastPracticedAt && new Date(p.lastPracticedAt).toDateString() === today).length;
+  $('today-count').textContent = practiced ? `今天练了 ${practiced} 句` : '今天从一句开始';
+}
+function renderLearn(preferredId) {
+  state.filtered = flatten(currentPack()).filter(item => {
+    if (state.moduleId !== 'all' && item.moduleId !== state.moduleId) return false;
+    const p = progressFor(item);
+    if (state.filter === 'favorite') return p.favorite;
+    if (state.filter === 'new') return p.status !== 'mastered';
+    if (state.filter !== 'all') return p.status === state.filter;
+    return true;
+  });
+  const preferredIndex = preferredId ? state.filtered.findIndex(item => item.id === preferredId) : -1;
+  state.index = preferredIndex >= 0 ? preferredIndex : Math.min(Math.max(state.index, 0), Math.max(0, state.filtered.length - 1));
+  const item = currentItem();
+  const empty = !item;
+  $('learning-card').hidden = empty;
+  $('learning-empty').hidden = !empty;
+  $('mark-actions').hidden = empty;
+  $('card-navigation').hidden = empty;
+  if (!item) return;
+  const p = progressFor(item);
+  $('item-module').textContent = item.moduleName;
+  $('item-position').textContent = `${state.index + 1} / ${state.filtered.length}`;
+  $('item-en').textContent = item.en;
+  $('item-en').classList.toggle('is-long', item.en.length > 160);
+  $('item-role').hidden = !item.role;
+  $('item-role').textContent = item.role ? `角色：${item.role}` : '';
+  $('item-phonetic').hidden = !item.phonetic;
+  $('item-phonetic').textContent = item.phonetic || '';
+  $('item-zh').textContent = item.zh;
+  $('item-meaning').hidden = !state.reveal;
+  $('toggle-meaning').textContent = state.reveal ? '收起释义' : '显示释义';
+  $('toggle-meaning').setAttribute('aria-expanded', String(state.reveal));
+  $('example-block').hidden = !item.example;
+  $('item-example').textContent = item.example || '';
+  $('item-example-zh').textContent = item.example_zh || '';
+  $('mark-mastered').setAttribute('aria-pressed', String(p.status === 'mastered'));
+  $('mark-review').setAttribute('aria-pressed', String(p.status === 'review'));
+  $('mark-favorite').setAttribute('aria-pressed', String(p.favorite));
+  $('previous-item').disabled = state.index === 0;
+  $('next-item').disabled = state.index >= state.filtered.length - 1;
+  $('random-item').disabled = state.filtered.length < 2;
+}
+
+function switchView(view, focus = true) {
+  if (!['learn', 'practice', 'scenario', 'data'].includes(view)) return;
+  abortAudio();
+  state.view = view;
+  for (const name of ['learn', 'practice', 'scenario', 'data']) {
+    $(`panel-${name}`).hidden = name !== view;
+    $(`tab-${name}`).setAttribute('aria-selected', String(name === view));
+    $(`tab-${name}`).tabIndex = name === view ? 0 : -1;
+  }
+  if (view === 'practice' && !state.practice) setPracticeTarget(currentItem());
+  if (view === 'data') renderData();
+  if (focus) {
+    $('main-content').focus({ preventScroll: true });
+    $('main-content').scrollIntoView({ behavior: 'auto', block: 'start' });
+  }
+}
+async function markItem(action) {
+  const item = currentItem();
+  if (!item) return;
+  const previous = progressFor(item);
+  const patch = action === 'favorite'
+    ? { favorite: !previous.favorite }
+    : { status: previous.status === action ? 'new' : action };
+  const controls = ['mark-mastered', 'mark-review', 'mark-favorite'].map($);
+  controls.forEach(button => { button.disabled = true; });
+  try {
+    const saved = await DB.saveProgress(item.packId, item.id, patch);
+    state.progress.set(key(item.packId, item.id), saved);
+    renderSummary(); renderLearn(currentItem()?.id);
+    toast(action === 'favorite' ? (saved.favorite ? '已加入收藏' : '已取消收藏') : saved.status === 'new' ? '已还原为未标记' : saved.status === 'mastered' ? '已标记掌握' : '已加入复习队列');
+  } finally { controls.forEach(button => { button.disabled = false; }); }
+}
+function moveItem(direction) {
+  abortAudio();
+  state.reveal = false;
+  if (direction === 'random' && state.filtered.length > 1) {
+    const offset = 1 + Math.floor(Math.random() * (state.filtered.length - 1));
+    state.index = (state.index + offset) % state.filtered.length;
+  } else state.index += Number(direction);
+  renderLearn();
+}
+
+function setPracticeTarget(item) {
+  abortAudio();
+  state.practice = item ? { ...item } : null;
+  $('practice-module').textContent = item?.moduleName || '弱项单词练习';
+  $('practice-target').textContent = item?.en || '先到学习页选择一句话';
+  $('practice-translation').textContent = item?.zh || '';
+  $('practice-input').value = '';
+  $('practice-result').hidden = true;
+  $('practice-status').textContent = '也可以直接输入英文练习';
+  updateRecordingUI();
+}
+function showAlignment(result) {
+  const labels = { correct: '匹配', substitution: '待练', missing: '漏读', extra: '多读' };
+  $('word-alignment').replaceChildren(...result.alignment.map(token => {
+    const span = node('span', `word-token is-${token.kind}`);
+    span.append(node('span', '', token.expected || token.actual));
+    const detail = token.kind === 'substitution' ? `${labels[token.kind]} · 识别为 ${token.actual}` : labels[token.kind];
+    span.append(node('small', '', detail));
+    span.setAttribute('aria-label', `${token.expected || token.actual}，${detail}`);
+    return span;
+  }));
+}
+async function saveAttempt(target, spoken, score, extra = {}) {
+  if (!target?.packId || !target?.id || !state.packs.some(pack => pack.id === target.packId)) return;
+  const recordKey = key(target.packId, target.id);
+  const attemptedAt = new Date().toISOString();
+  const pending = (attemptWrites.get(recordKey) || Promise.resolve()).catch(() => {}).then(async () => {
+    if (!state.packs.some(pack => pack.id === target.packId)) return;
+    const previous = await DB.getProgress(target.packId, target.id);
+    const record = await DB.saveProgress(target.packId, target.id, {
+      attempts: (previous?.attempts || 0) + 1,
+      lastScore: score, lastTarget: target.en, lastSpoken: spoken,
+      lastPracticedAt: attemptedAt, ...extra,
+    });
+    if (state.packs.some(pack => pack.id === target.packId)) {
+      state.progress.set(recordKey, record);
+      renderSummary();
+    }
+  });
+  attemptWrites.set(recordKey, pending);
+  try { await pending; }
+  finally { if (attemptWrites.get(recordKey) === pending) attemptWrites.delete(recordKey); }
+}
+async function evaluatePractice() {
+  if (state.practiceBusy) return;
+  const target = state.practice;
+  const spoken = $('practice-input').value.trim();
+  if (!target) return toast('先到学习页选择目标句。');
+  if (!spoken) return toast('先说出或输入一句英文，再进行对比。');
+  if (spoken.length > 4000) return toast('输入超过4000字符，请缩短后再对比。');
+  const result = compareWords(target.en, spoken);
+  if (!result.total) return toast('这个目标没有可比较的英文单词，请选择另一条。');
+  const generation = state.generation;
+  state.practiceBusy = true;
+  updateRecordingUI();
+  $('practice-result').hidden = false;
+  $('practice-score').textContent = `${result.score}%`;
+  $('practice-result-summary').textContent = `匹配 ${result.correct}/${result.total} 词 · 替换 ${result.substitutions} · 漏读 ${result.deletions} · 多读 ${result.insertions}`;
+  showAlignment(result);
+  $('weak-save-status').textContent = '正在保存本次练习…';
+  try {
+    await saveAttempt(target, spoken, result.score);
+    const context = { target: target.en, spoken };
+    if (target.packId && target.id && state.packs.some(pack => pack.id === target.packId)) {
+      context.packId = target.packId; context.itemId = target.id;
+    }
+    const validWords = result.weakWords.filter(word => word.length <= 100 && /^[a-z0-9]+(?:['’\-][a-z0-9]+)*$/.test(word));
+    for (let offset = 0; offset < validWords.length; offset += 200) await DB.addWeakWords(validWords.slice(offset, offset + 200), context);
+    state.weakWords = await DB.listWeakWords();
+    if (generation === state.generation) {
+      $('weak-save-status').textContent = validWords.length
+        ? `本次 ${validWords.length} 个待练目标词已记入弱项词库。${validWords.length < result.weakWords.length ? '过长词项未写入，请分段练习。' : ''}`
+        : '本次练习已保存，没有新增弱项词。';
+    }
+  } catch (error) {
+    if (generation === state.generation) $('weak-save-status').textContent = `对比已完成，但本次数据未能全部保存：${errorMessage(error)}`;
+    throw error;
+  } finally {
+    state.practiceBusy = false;
+    updateRecordingUI();
+  }
+}
+
+function beginRecognition(purpose) {
+  TTS.cancel();
+  if (!speech.supported) {
+    const message = '此设备或当前地址不支持语音识别，请在文本框输入英文。HTTPS和支持的系统服务可提高可用性。';
+    $(purpose === 'practice' ? 'practice-status' : 'scenario-status').textContent = message;
+    toast(message); return;
+  }
+  if (speech.active) return;
+  if (purpose === 'practice' && !state.practice) return toast('先到学习页选择目标句。');
+  if (purpose === 'scenario' && !state.scene) return toast('请先开始一个情景。');
+  if ((purpose === 'practice' && state.practiceBusy) || (purpose === 'scenario' && state.scenarioBusy)) {
+    return toast('正在保存本次回答，请稍后再开始下一次语音输入。');
+  }
+  const generation = ++state.generation;
+  const targetId = state.practice?.id;
+  const sceneTurn = state.scene?.index;
+  const sceneInstance = state.scene;
+  state.listeningFor = purpose;
+  const input = $(purpose === 'practice' ? 'practice-input' : 'scenario-input');
+  const status = $(purpose === 'practice' ? 'practice-status' : 'scenario-status');
+  // Preserve existing typing if permission is denied or no new result arrives.
+  if (purpose === 'practice') $('practice-result').hidden = true;
+  let receivedFinal = false;
+  let receivedResult = false;
+  let receivedError = false;
+  const valid = () => generation === state.generation && state.listeningFor === purpose && (purpose !== 'practice' || state.practice?.id === targetId) && (purpose !== 'scenario' || (state.scene === sceneInstance && state.scene?.index === sceneTurn));
+  const started = speech.start({
+    onStatus: message => { if (valid()) status.textContent = message; },
+    onResult: (text, { isFinal }) => {
+      if (!valid()) return;
+      receivedResult = true;
+      receivedFinal = isFinal;
+      input.value = text;
+      if (purpose === 'scenario') {
+        sceneInstance.checked = false;
+        $('scenario-feedback').hidden = true;
+        updateRecordingUI();
+      }
+      if (isFinal) status.textContent = '已识别，结束本次识别后将自动对比并保存。';
+    },
+    onError: message => { if (valid()) { receivedError = true;status.textContent = message;toast(message); } },
+    onEnd: () => {
+      if (!valid()) return;
+      state.listeningFor = null;
+      if (!receivedError && receivedFinal) {
+        status.textContent = '已识别，可编辑文字后再次比较。';
+        const evaluated = purpose === 'practice' ? evaluatePractice() : evaluateScenario();
+        evaluated.catch(report);
+      } else if (!receivedError) status.textContent = receivedResult
+          ? '识别已结束，可编辑后点击提交。'
+          : '未获得新的识别文字，原有输入已保留。';
+      updateRecordingUI();
+    },
+  });
+  updateRecordingUI();
+  started.catch(report).finally(updateRecordingUI);
+}
+
+function sceneModule(pack, scene) {
+  return pack?.modules.find(module => module.scene === scene || (scene === 'exhibition' && /展会/.test(module.module)) || (scene === 'negotiation' && /谈判|谈价/.test(module.module)) || (scene === 'complaint' && /客诉/.test(module.module)));
+}
+function prepareScenario() {
+  const sceneName = $('scenario-select').value;
+  let pack = currentPack();
+  let module = sceneModule(pack, sceneName);
+  if (!module) {
+    pack = state.packs.find(candidate => sceneModule(candidate, sceneName));
+    module = sceneModule(pack, sceneName);
+  }
+  if (!module) { pack = state.demo; module = sceneModule(pack, sceneName); }
+  if (!module || !pack) throw new Error('暂时没有这个情景。请导入含对应scene字段及Client/You角色的课程。');
+  const turns = [];
+  for (let index = 0; index < module.items.length; index += 1) {
+    const prompt = module.items[index];
+    if (String(prompt.role).toLowerCase() !== 'client') continue;
+    let response;
+    for (let next = index + 1; next < module.items.length; next += 1) {
+      if (String(module.items[next].role).toLowerCase() === 'client') break;
+      if (['you', 'supplier'].includes(String(module.items[next].role).toLowerCase())) { response = module.items[next]; break; }
+    }
+    const reference = prompt.reference || response?.en || '';
+    const keywords = prompt.keywords?.length ? prompt.keywords : deriveKeywords(reference);
+    turns.push({ prompt: { ...prompt, packId: pack.id, moduleId: module.id, moduleName: module.module }, reference, referenceZh: response?.zh || '', keywords });
+  }
+  if (!turns.length) throw new Error('这个情景模块没有Client角色的问题，请检查课程格式。');
+  return { name: sceneName, pack, module, turns, index: 0, responses: [], checked: false };
+}
+function deriveKeywords(text) {
+  const ignored = new Set(['the','a','an','and','or','to','of','in','on','for','with','is','are','be','we','you','your','our','can','will','please','that','this','it','would','could','have','as','from']);
+  return [...new Set(normalizeWords(text).split(' ').filter(word => word.length > 3 && !ignored.has(word)))].slice(0, 6);
+}
+function normalizeWords(value) {
+  return (String(value).normalize('NFKC').toLowerCase().replace(/[\u2018\u2019\u02bc\uff07]/g, "'").match(/[a-z0-9]+(?:'[a-z0-9]+)*/g) || []).join(' ');
+}
+function renderScenarioIntro() {
+  const info = sceneInfo[$('scenario-select').value];
+  $('scenario-title').textContent = info.title;
+  $('scenario-description').textContent = info.description;
+}
+function renderSceneTurn() {
+  const scene = state.scene;
+  const turn = scene.turns[scene.index];
+  scene.checked = false;
+  $('scenario-intro').hidden = true;
+  $('scenario-session').hidden = false;
+  $('scenario-complete').hidden = true;
+  $('scenario-source').textContent = scene.pack.id === state.packId ? '当前课程中的情景' : '内置 / 其他课程情景';
+  $('scenario-step').textContent = `第 ${scene.index + 1} / ${scene.turns.length} 轮`;
+  $('client-question').textContent = turn.prompt.en;
+  $('client-translation').textContent = turn.prompt.zh;
+  $('client-translation').parentElement.open = false;
+  $('scenario-input').value = '';
+  $('scenario-feedback').hidden = true;
+  $('scenario-reference').hidden = true;
+  $('reference-en').textContent = turn.reference || '此课程未提供参考回答，可自行补充You角色内容。';
+  $('reference-zh').textContent = turn.referenceZh;
+  $('next-scenario').disabled = true;
+  $('next-scenario').textContent = scene.index === scene.turns.length - 1 ? '完成本次对练' : '下一轮';
+  $('scenario-status').textContent = state.sceneMode === 'text' ? '文本模式：直接输入你的英文回答。' : speech.supported ? '准备好后，点击语音回答。' : '此浏览器不支持识别，请直接输入英文。';
+  $('scenario-voice-tools').hidden = state.sceneMode === 'text';
+  updateRecordingUI();
+}
+function startScenario() {
+  abortAudio();
+  state.scene = prepareScenario();
+  renderSceneTurn();
+  if (state.sceneMode === 'voice') speakText(state.scene.turns[0].prompt.en);
+}
+function revealReference() {
+  if (!state.scene) return;
+  $('scenario-reference').hidden = false;
+}
+async function evaluateScenario() {
+  if (state.scenarioBusy || !state.scene) return;
+  const scene = state.scene;
+  const turn = scene.turns[scene.index];
+  const spoken = $('scenario-input').value.trim();
+  if (!spoken) return toast('先说出或输入你的英文回答。');
+  if (spoken.length > 4000) return toast('回答超过4000字符，请精简后再提交。');
+  const normalized = ` ${normalizeWords(spoken)} `;
+  const matched = turn.keywords.filter(keyword => {
+    const normalizedKeyword = normalizeWords(keyword);
+    return normalizedKeyword && normalized.includes(` ${normalizedKeyword} `);
+  });
+  const coverage = turn.keywords.length ? Math.round(matched.length / turn.keywords.length * 100) : 0;
+  const feedback = $('scenario-feedback');
+  const positive = matched.length > 0;
+  feedback.replaceChildren(
+    node('strong', '', positive ? '回答有重点，继续把信息说完整。' : '再试着补充客户关心的要点。'),
+    node('p', '', positive ? `已命中要点：${matched.join('、')}。可对照参考表达完善细节。` : turn.keywords.length ? `可以尝试涉及：${turn.keywords.join('、')}。下面有参考表达。` : '此条没有预设关键词，可对照参考表达自行复盘。'),
+    node('p', 'supporting-text', '这里仅做简单关键词匹配，不判断语法、事实或商务条件是否正确。'),
+  );
+  feedback.classList.toggle('is-positive', positive);
+  feedback.hidden = false;
+  if (!positive) revealReference();
+  scene.responses[scene.index] = { spoken, matched: matched.length, total: turn.keywords.length };
+  scene.checked = true;
+  state.scenarioBusy = true;
+  updateRecordingUI();
+  try { await saveAttempt(turn.prompt, spoken, coverage); }
+  finally { state.scenarioBusy = false;updateRecordingUI(); }
+}
+function nextScenario() {
+  if (!state.scene?.checked || state.scenarioBusy || speech.active) return;
+  abortAudio();
+  const scene = state.scene;
+  if (scene.index >= scene.turns.length - 1) {
+    $('scenario-session').hidden = true;
+    $('scenario-complete').hidden = false;
+    const covered = scene.responses.filter(response => response?.matched > 0).length;
+    $('scenario-complete-summary').textContent = `完成 ${scene.turns.length} 轮回答，其中 ${covered} 轮命中预设要点。换个表达再练一次，会更熟悉。`;
+  } else {
+    scene.index += 1;
+    renderSceneTurn();
+    if (state.sceneMode === 'voice') speakText(scene.turns[scene.index].prompt.en);
+  }
+}
+function resetScenario() {
+  abortAudio(); state.scene = null;
+  $('scenario-intro').hidden = false;
+  $('scenario-session').hidden = true;
+  $('scenario-complete').hidden = true;
+  renderScenarioIntro();
+  updateRecordingUI();
+}
+
+function renderPacks() {
+  $('pack-list').replaceChildren(...state.packs.map(pack => {
+    const article = node('article', 'pack-row');
+    const info = node('div');
+    info.append(node('h4', '', pack.pack_name), node('p', '', `${pack.version} · ${pack.modules.length} 模块 · ${flatten(pack).length} 条${pack.id === state.packId ? ' · 当前课程' : ''}`));
+    const button = node('button', 'button button-quiet', '移除课程');
+    button.type = 'button'; button.dataset.removePack = pack.id;
+    button.disabled = state.packs.length <= 1;
+    button.setAttribute('aria-label', `移除课程：${pack.pack_name}`);
+    if (button.disabled) button.title = '保留至少一个课程包；可先导入其他课程。';
+    article.append(info, button); return article;
+  }));
+}
+function renderWeakWords() {
+  const query = $('weak-search').value.trim().toLowerCase();
+  const matches = state.weakWords.filter(record => record.word.includes(query));
+  $('weak-count').textContent = state.weakWords.length;
+  $('more-weak').hidden = matches.length <= state.weakLimit;
+  if (!matches.length) {
+    const empty = node('div', 'empty-state');
+    empty.append(node('h4', '', query ? '没有找到这个词' : '先完成一次跟读练习'), node('p', '', query ? '换个关键词试试。' : '错读或漏读的目标词会自动记入，方便带回原句复习。'));
+    $('weak-list').replaceChildren(empty); return;
+  }
+  $('weak-list').replaceChildren(...matches.slice(0, state.weakLimit).map(record => {
+    const row = node('article', 'weak-row'); const info = node('div');
+    info.append(node('h4', '', record.word), node('p', '', `在练习中出现 ${record.count} 次`));
+    const tools = node('div', 'weak-tools');
+    for (const [action, label] of [['speak','发音'],['practice',record.contexts.some(context => context.target) ? '回句跟读' : '练这个词'],['remove','已巩固']]) {
+      const button = node('button', 'button button-secondary', label);
+      button.type = 'button';button.dataset.weakAction = action;button.dataset.word = record.word;
+      button.setAttribute('aria-label', `${label}：${record.word}`);tools.append(button);
+    }
+    row.append(info, tools); return row;
+  }));
+}
+function renderData() { renderPacks(); renderWeakWords(); }
+
+function importFailure(error) {
+  state.importCandidate = null;
+  $('import-preview').hidden = true;
+  $('import-error').textContent = errorMessage(error);
+  $('import-error').hidden = false;
+}
+function previewImport(text) {
+  try {
+    const parsed = parseImport(text);
+    state.importCandidate = parsed;
+    $('import-error').hidden = true;
+    $('import-preview').hidden = false;
+    if (parsed.kind === 'course') {
+      const { pack } = parsed;
+      $('import-preview-title').textContent = pack.pack_name;
+      $('import-preview-description').textContent = `课程包 · ${pack.version} · ${pack.modules.length} 个模块 · ${flatten(pack).length} 条内容`;
+      $('import-preview-policy').textContent = state.packs.some(existing => existing.id === pack.id)
+        ? '将更新相同标识的课程，保留仍匹配的学习项进度，移除不再对应的进度。'
+        : '确认后把课程保存在本机。导入内容仅按文字显示，不执行其中的代码。';
+    } else {
+      const { backup } = parsed;
+      $('import-preview-title').textContent = '学习备份';
+      $('import-preview-description').textContent = `${backup.packs.length} 个课程包 · ${backup.progress.length} 条进度 · ${backup.weakWords.length} 个弱项词`;
+      $('import-preview-policy').textContent = '与现有数据合并：课程按备份更新，进度保留较新记录，弱项次数取较大值；其他数据不清空。设置也会恢复。';
+    }
+  } catch (error) { importFailure(error); }
+}
+async function importFile(file) {
+  const generation = ++state.importGeneration;
+  if (!file) return;
+  try {
+    const text = await readFileText(file);
+    if (generation === state.importGeneration) previewImport(text);
+  } catch (error) { if (generation === state.importGeneration) importFailure(error); }
+}
+async function confirmImport() {
+  if (!state.importCandidate || state.importing) return;
+  const candidate = state.importCandidate;
+  state.importing = true;
+  $('confirm-import').disabled = true;
+  $('cancel-import').disabled = true;
+  abortAudio();
+  try {
+    if (candidate.kind === 'course') await DB.putPack(candidate.pack);
+    else await DB.restoreBackup(candidate.backup);
+    await reloadData(candidate.kind === 'course' ? candidate.pack.id : undefined);
+    state.importCandidate = null;
+    $('import-preview').hidden = true;
+    $('import-file').value = '';
+    $('import-text').value = '';
+    $('import-error').hidden = true;
+    toast(candidate.kind === 'course' ? '课程已保存到本机。' : '学习备份已合并到本机。');
+  } catch (error) { importFailure(error); }
+  finally { state.importing = false; $('confirm-import').disabled = false; $('cancel-import').disabled = false; }
+}
+
+async function reloadData(preferredId) {
+  const [packs, progress, words, rate, voiceURI, theme, savedPack] = await Promise.all([
+    DB.listPacks(), DB.listProgress(), DB.listWeakWords(), DB.getSetting('rate', 0.85),
+    DB.getSetting('voiceURI', ''), DB.getSetting('theme', 'system'), DB.getSetting('preferredPack', ''),
+  ]);
+  state.packs = packs;
+  state.progress = new Map(progress.map(record => [key(record.packId, record.itemId), record]));
+  state.weakWords = words;
+  state.packId = [preferredId, savedPack, state.packId, packs[0]?.id].find(id => packs.some(pack => pack.id === id)) || '';
+  state.rate = Number.isFinite(rate) ? Math.max(0.6, Math.min(1, rate)) : 0.85;
+  state.voiceURI = typeof voiceURI === 'string' ? voiceURI : '';
+  state.theme = ['system','light','dark'].includes(theme) ? theme : 'system';
+  state.moduleId = 'all';state.index = 0;state.reveal = false;
+  $('speech-rate').value = state.rate;
+  $('rate-value').textContent = `${state.rate.toFixed(2)}×`;
+  applyTheme();updateVoices();renderPackControls();renderSummary();renderLearn();renderData();resetScenario();
+  setPracticeTarget(currentItem());
+  if (state.packId) await DB.setSetting('preferredPack', state.packId);
+}
+
+function updateOfflineStatus() {
+  const ready = state.offlineReady;
+  $('offline-status').classList.toggle('is-ready', ready);
+  $('offline-status').textContent = ready
+    ? navigator.onLine ? '离线资源已就绪' : '正在离线学习'
+    : !window.isSecureContext ? '离线安装需要 HTTPS'
+      : typeof navigator.serviceWorker?.register !== 'function' ? '当前浏览器不支持离线缓存'
+        : navigator.onLine ? '离线资源正在准备' : '尚未确认离线缓存';
+}
+async function setupServiceWorker() {
+  if (typeof navigator.serviceWorker?.register !== 'function' || !window.isSecureContext) { updateOfflineStatus();return; }
+  try {
+    const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+    const waiting = () => {
+      if (registration.waiting && navigator.serviceWorker.controller) {
+        state.waitingWorker = registration.waiting;
+        $('update-banner').hidden = false;
+      }
+    };
+    waiting();
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      worker?.addEventListener('statechange', () => { if (worker.state === 'installed') waiting(); });
+    });
+    navigator.serviceWorker.ready.then(() => { state.offlineReady = true; updateOfflineStatus(); }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (state.updateRequested) window.location.reload();
+      else { state.offlineReady = true; updateOfflineStatus(); }
+    });
+  } catch (error) {
+    $('offline-status').textContent = '离线缓存未就绪，可继续在线学习';
+    console.warn('离线缓存注册失败：', error);
+  }
+}
+
+function wireEvents() {
+  document.querySelectorAll('.bottom-nav [data-view]').forEach(button => {
+    button.addEventListener('click', () => switchView(button.dataset.view));
+    button.addEventListener('keydown', e => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
+      e.preventDefault();
+      const names = ['learn','practice','scenario','data'];
+      const index = names.indexOf(state.view);
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? 3 : (index + (e.key === 'ArrowRight' ? 1 : 3)) % 4;
+      switchView(names[next], false);$(`tab-${names[next]}`).focus();
+    });
+  });
+  bind('pack-select','change',async e => {
+    abortAudio();
+    state.packId = e.target.value;state.moduleId = 'all';state.filter = 'all';state.index = 0;state.reveal = false;
+    renderPackControls();renderSummary();renderLearn();setPracticeTarget(currentItem());resetScenario();
+    await DB.setSetting('preferredPack', state.packId);
+  });
+  bind('module-filter','change',e => { abortAudio();state.moduleId = e.target.value;state.index = 0;state.reveal = false;renderLearn(); });
+  bind('status-filter','change',e => { abortAudio();state.filter = e.target.value;state.index = 0;state.reveal = false;renderLearn(); });
+  bind('toggle-meaning','click',() => { state.reveal = !state.reveal;renderLearn(currentItem()?.id); });
+  bind('speak-item','click',() => speakText(currentItem()?.en || ''));
+  bind('speak-example','click',() => speakText(currentItem()?.example || ''));
+  bind('stop-speech','click',() => TTS.cancel());
+  bind('previous-item','click',() => moveItem(-1));bind('next-item','click',() => moveItem(1));bind('random-item','click',() => moveItem('random'));
+  bind('mark-mastered','click',() => markItem('mastered'));bind('mark-review','click',() => markItem('review'));bind('mark-favorite','click',() => markItem('favorite'));
+  const applyFilter = filter => { state.filter = filter;state.index = 0;state.reveal = false;$('status-filter').value = filter;renderLearn();switchView('learn'); };
+  bind('summary-mastered','click',() => applyFilter('mastered'));bind('summary-review','click',() => applyFilter('review'));bind('summary-favorite','click',() => applyFilter('favorite'));
+  bind('reset-filters','click',() => { state.moduleId = 'all';$('module-filter').value = 'all';applyFilter('all'); });
+  bind('speech-rate','input',e => { state.rate = Number(e.target.value);$('rate-value').textContent = `${state.rate.toFixed(2)}×`; });
+  bind('speech-rate','change',() => DB.setSetting('rate', state.rate));
+  bind('voice-select','change',e => { state.voiceURI = e.target.value;return DB.setSetting('voiceURI', state.voiceURI); });
+  bind('theme-select','change',e => { state.theme = e.target.value;applyTheme();return DB.setSetting('theme', state.theme); });
+  mediaTheme.addEventListener?.('change', () => { if (state.theme === 'system') applyTheme(); });
+  bind('practice-current','click',() => { setPracticeTarget(currentItem());switchView('practice'); });
+  bind('use-learning-target','click',() => setPracticeTarget(currentItem()));
+  bind('speak-target','click',() => speakText(state.practice?.en || ''));
+  bind('start-practice','click',() => beginRecognition('practice'));
+  bind('stop-practice','click',() => speech.stop());
+  bind('compare-practice','click',evaluatePractice);
+  bind('practice-input','input',() => {
+    if (state.listeningFor === 'practice') abortAudio();
+    $('practice-result').hidden = true;
+    $('practice-status').textContent = '输入完成后，点击对比并保存练习。';
+  });
+  bind('clear-practice','click',() => { abortAudio();$('practice-input').value = '';$('practice-result').hidden = true;$('practice-status').textContent = '也可以直接输入英文练习'; });
+  bind('go-weak-words','click',() => { switchView('data');$('weak-section').scrollIntoView({ block: 'start' }); });
+  bind('scenario-select','change',resetScenario);
+  document.querySelectorAll('input[name=scenario-mode]').forEach(input => input.addEventListener('change', e => {
+    abortAudio();state.sceneMode = e.target.value;
+    $('scenario-voice-tools').hidden = state.sceneMode === 'text';
+    $('scenario-status').textContent = state.sceneMode === 'text' ? '文本模式：直接输入你的英文回答。' : '准备好后，点击语音回答。';
+  }));
+  bind('start-scenario','click',startScenario);bind('restart-scenario','click',startScenario);bind('repeat-scenario','click',startScenario);
+  bind('change-scenario','click',resetScenario);
+  bind('speak-client','click',() => speakText(state.scene?.turns[state.scene.index].prompt.en || ''));
+  bind('start-scenario-voice','click',() => beginRecognition('scenario'));bind('stop-scenario-voice','click',() => speech.stop());
+  bind('check-scenario','click',evaluateScenario);bind('show-scenario-reference','click',revealReference);bind('next-scenario','click',nextScenario);
+  bind('scenario-input','input',() => {
+    if (state.listeningFor === 'scenario') abortAudio();
+    if (state.scene) state.scene.checked = false;
+    $('scenario-feedback').hidden = true;
+    $('scenario-status').textContent = '输入完成后，点击提交回答。';
+    updateRecordingUI();
+  });
+  bind('speak-reference','click',() => speakText(state.scene?.turns[state.scene.index].reference || ''));
+  bind('weak-search','input',() => { state.weakLimit = 40;renderWeakWords(); });
+  bind('more-weak','click',() => { state.weakLimit += 40;renderWeakWords(); });
+  bind('weak-list','click',async e => {
+    const button = e.target.closest('button[data-weak-action]');if (!button) return;
+    const record = state.weakWords.find(word => word.word === button.dataset.word);if (!record) return;
+    if (button.dataset.weakAction === 'speak') { speakText(record.word);return; }
+    if (button.dataset.weakAction === 'remove') {
+      button.disabled = true;
+      try { await DB.deleteWeakWord(record.word);state.weakWords = await DB.listWeakWords();renderWeakWords();toast('已从当前弱项词库移除，今后练习出错时仍会再记入。'); }
+      finally { button.disabled = false; }
+      return;
+    }
+    const context = record.contexts.find(item => item.target);
+    let target = context?.packId ? flatten(state.packs.find(pack => pack.id === context.packId)).find(item => item.id === context.itemId) : null;
+    if (!target) target = { en: context?.target || record.word, zh: '回到这个词所在的句子，再说一遍。', moduleName: '弱项回句练习' };
+    setPracticeTarget(target);switchView('practice');
+  });
+  bind('export-backup','click',async () => {
+    const backup = await DB.exportBackup();downloadJSON(backup, `dayang-backup-${new Date().toISOString().slice(0,10)}.json`);toast('已发起备份下载；iPhone可将文件存到“文件”App。');
+  });
+  bind('export-course','click',() => { if (currentPack()) downloadJSON(currentPack(), `${currentPack().pack_name}.json`); });
+  bind('import-file','change',e => importFile(e.target.files[0]));
+  bind('preview-pasted','click',() => { state.importGeneration += 1;previewImport($('import-text').value); });
+  bind('cancel-import','click',() => { state.importGeneration += 1;state.importCandidate = null;$('import-preview').hidden = true;$('import-error').hidden = true;$('import-file').value = ''; });
+  bind('confirm-import','click',confirmImport);
+  bind('pack-list','click',async e => {
+    const button = e.target.closest('button[data-remove-pack]');if (!button || state.packs.length <= 1) return;
+    const pack = state.packs.find(p => p.id === button.dataset.removePack);if (!pack) return;
+    if (!window.confirm(`移除“${pack.pack_name}”及它的进度、收藏？其他课程不受影响。建议先导出备份。`)) return;
+    button.disabled = true;abortAudio();
+    await DB.deletePack(pack.id);await reloadData();toast('课程及对应进度已移除。');
+  });
+  bind('install-help','click',() => { const d = $('help-dialog');if (typeof d.showModal === 'function') d.showModal();else d.setAttribute('open',''); });
+  bind('close-help','click',() => { const d = $('help-dialog');if (typeof d.close === 'function') d.close();else d.removeAttribute('open'); });
+  bind('update-app','click',() => {
+    if (!state.waitingWorker) return;
+    abortAudio();state.updateRequested = true;$('update-app').disabled = true;
+    state.waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+  });
+  window.addEventListener('online',updateOfflineStatus);window.addEventListener('offline',updateOfflineStatus);
+  document.addEventListener('visibilitychange',() => { if (document.hidden) abortAudio(); });
+  window.addEventListener('pagehide',abortAudio);
+  bind('retry-boot','click',() => window.location.reload());
+}
+
+async function boot() {
+  wireEvents();
+  TTS.subscribeVoices(updateVoices);
+  $('recognition-support').textContent = speech.supported
+    ? '英语识别由浏览器或系统提供，可能需要联网。只有点击开始时才申请麦克风。'
+    : '此浏览器或当前地址暂不支持语音识别。直接输入英文，仍可对比并保存练习。';
+  try {
+    await DB.init();
+    let packs = await DB.listPacks();
+    try {
+      const response = await fetch('./demo.json');
+      if (!response.ok) throw new Error(`课程文件HTTP ${response.status}`);
+      state.demo = validatePack(await response.json());
+    } catch (error) {
+      if (!packs.length) throw new Error(`内置课程尚未加载，请联网完整打开一次。${errorMessage(error)}`);
+    }
+    if (!packs.length && state.demo) { await DB.putPack(state.demo);packs = [state.demo]; }
+    await reloadData();
+    $('boot-screen').hidden = true;
+    $('app-content').hidden = false;
+    switchView('learn', false);
+    updateRecordingUI();
+    updateOfflineStatus();
+    setupServiceWorker();
+  } catch (error) {
+    $('boot-screen').hidden = true;$('fatal-screen').hidden = false;
+    $('fatal-message').textContent = errorMessage(error);
+  }
+}
+
+boot();

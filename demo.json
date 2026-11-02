@@ -1,0 +1,820 @@
+{
+  "pack_name": "大洋医疗外贸英语 · 随身练习",
+  "version": "2026.11",
+  "modules": [
+    {
+      "module": "七类产品词汇",
+      "items": [
+        {
+          "en": "patient lift",
+          "zh": "患者移位机",
+          "example": "Which patient lift model are you interested in?",
+          "example_zh": "您对哪款患者移位机感兴趣？"
+        },
+        {
+          "en": "sling",
+          "zh": "移位机吊带",
+          "example": "The sling must be compatible with the lift.",
+          "example_zh": "吊带必须与移位机兼容。",
+          "phonetic": "/slɪŋ/"
+        },
+        {
+          "en": "safe working load / SWL",
+          "zh": "安全工作载荷",
+          "example": "Please confirm the safe working load of the complete system.",
+          "example_zh": "请确认整套系统的安全工作载荷。"
+        },
+        {
+          "en": "walker",
+          "zh": "助行架",
+          "example": "Would you like to compare the available walker models?",
+          "example_zh": "您想比较一下可选的助行架型号吗？"
+        },
+        {
+          "en": "rollator",
+          "zh": "带轮助行器",
+          "example": "Does your customer need a rollator with a seat?",
+          "example_zh": "您的客户是否需要带座板的带轮助行器？"
+        },
+        {
+          "en": "height-adjustable",
+          "zh": "高度可调的",
+          "example": "Please confirm the adjustment range for this height-adjustable walker.",
+          "example_zh": "请确认这款高度可调助行架的调节范围。"
+        },
+        {
+          "en": "power wheelchair",
+          "zh": "电动轮椅",
+          "example": "Which power wheelchair configuration suits your market?",
+          "example_zh": "哪种电动轮椅配置适合您的市场？"
+        },
+        {
+          "en": "joystick controller",
+          "zh": "摇杆控制器",
+          "example": "Let me show you the documented joystick controls.",
+          "example_zh": "我来向您介绍文件规定的摇杆控制功能。"
+        },
+        {
+          "en": "driving range",
+          "zh": "行驶续航距离",
+          "example": "The driving range should be quoted with its test conditions.",
+          "example_zh": "介绍续航距离时应同时说明测试条件。"
+        },
+        {
+          "en": "manual wheelchair",
+          "zh": "手动轮椅",
+          "example": "Please confirm the seat width for the manual wheelchair order.",
+          "example_zh": "请确认这批手动轮椅订单的座宽。"
+        },
+        {
+          "en": "handrim",
+          "zh": "手轮圈",
+          "example": "The handrim is the ring used to propel the rear wheel.",
+          "example_zh": "手轮圈是用于推动后轮的轮圈。"
+        },
+        {
+          "en": "seat width",
+          "zh": "座宽",
+          "example": "What seat width do your customers require?",
+          "example_zh": "您的客户需要多大的座宽？"
+        },
+        {
+          "en": "home care bed",
+          "zh": "居家护理床",
+          "example": "What functions are required for the home care bed?",
+          "example_zh": "这款居家护理床需要哪些功能？"
+        },
+        {
+          "en": "backrest adjustment",
+          "zh": "背部调节",
+          "example": "Please demonstrate the supported backrest adjustment.",
+          "example_zh": "请演示实际支持的背部调节功能。"
+        },
+        {
+          "en": "side rail",
+          "zh": "床护栏",
+          "example": "Please confirm the side rail specification before ordering.",
+          "example_zh": "下单前请确认床护栏规格。"
+        },
+        {
+          "en": "hospital bed",
+          "zh": "病床",
+          "example": "Could you share the required hospital bed configuration?",
+          "example_zh": "能否告知所需的病床配置？"
+        },
+        {
+          "en": "central braking system",
+          "zh": "中控制动系统",
+          "example": "Is a central braking system included in this configuration?",
+          "example_zh": "这一配置是否包含中控制动系统？"
+        },
+        {
+          "en": "IV pole",
+          "zh": "输液架",
+          "example": "Please list the IV pole separately if it is optional.",
+          "example_zh": "如果输液架为选配，请单独列明。"
+        },
+        {
+          "en": "axillary crutches",
+          "zh": "腋拐",
+          "example": "Please confirm the size range for the axillary crutches.",
+          "example_zh": "请确认腋拐的尺寸范围。"
+        },
+        {
+          "en": "forearm crutches",
+          "zh": "肘拐",
+          "example": "Do you need forearm crutches or walking canes?",
+          "example_zh": "您需要肘拐还是手杖？"
+        },
+        {
+          "en": "walking cane",
+          "zh": "手杖",
+          "example": "Which walking cane design does your customer prefer?",
+          "example_zh": "您的客户更喜欢哪种手杖设计？"
+        }
+      ]
+    },
+    {
+      "module": "部件参数与通用商务",
+      "items": [
+        {
+          "en": "actuator",
+          "zh": "电动推杆",
+          "example": "Please confirm the actuator model and installation requirements.",
+          "example_zh": "请确认电动推杆型号及安装要求。"
+        },
+        {
+          "en": "spreader bar",
+          "zh": "移位机吊架",
+          "example": "Please verify the sling and spreader bar combination.",
+          "example_zh": "请核实吊带与吊架的组合。"
+        },
+        {
+          "en": "removable battery",
+          "zh": "可拆卸电池",
+          "example": "Does this configuration include a removable battery?",
+          "example_zh": "这一配置是否包含可拆卸电池？"
+        },
+        {
+          "en": "folding frame",
+          "zh": "折叠车架",
+          "example": "Could you confirm the folded dimensions of the folding frame?",
+          "example_zh": "能否确认折叠车架折叠后的尺寸？"
+        },
+        {
+          "en": "net weight",
+          "zh": "净重",
+          "example": "Please state the net weight separately from the gross weight.",
+          "example_zh": "请将净重与毛重分别列出。"
+        },
+        {
+          "en": "gross weight",
+          "zh": "毛重",
+          "example": "We need the packed gross weight for the shipping estimate.",
+          "example_zh": "估算运费需要包装后的毛重。"
+        },
+        {
+          "en": "dimensions",
+          "zh": "尺寸",
+          "example": "Please provide the overall and packed dimensions.",
+          "example_zh": "请提供整机尺寸和包装尺寸。"
+        },
+        {
+          "en": "battery capacity",
+          "zh": "电池容量",
+          "example": "Please quote the battery capacity together with the nominal voltage.",
+          "example_zh": "请同时提供电池容量和标称电压。"
+        },
+        {
+          "en": "OEM",
+          "zh": "原始设备制造；常见于贴牌生产",
+          "example": "We can discuss your OEM requirements before confirming feasibility.",
+          "example_zh": "确认可行性前，我们可以讨论您的贴牌生产要求。"
+        },
+        {
+          "en": "ODM",
+          "zh": "原始设计制造",
+          "example": "Please describe the ODM scope you want us to evaluate.",
+          "example_zh": "请说明您希望我们评估的原始设计制造范围。"
+        },
+        {
+          "en": "minimum order quantity / MOQ",
+          "zh": "最低订购量",
+          "example": "What is the MOQ for the selected configuration?",
+          "example_zh": "所选配置的最低订购量是多少？"
+        },
+        {
+          "en": "warranty",
+          "zh": "保修",
+          "example": "What does the warranty cover, and when does it start?",
+          "example_zh": "保修涵盖哪些内容，从何时起算？"
+        },
+        {
+          "en": "deposit",
+          "zh": "定金；预付款，具体含义按合同确认",
+          "example": "Please confirm when the deposit is due under the agreed terms.",
+          "example_zh": "请确认约定条款下预付款的到期时间。"
+        },
+        {
+          "en": "balance",
+          "zh": "尾款；剩余应付款",
+          "example": "The balance is payable according to the agreed payment terms.",
+          "example_zh": "尾款按双方约定的付款条件支付。"
+        },
+        {
+          "en": "quotation",
+          "zh": "报价单；报价",
+          "example": "Please check the configuration and included items in the quotation.",
+          "example_zh": "请核对报价中的配置和包含项目。"
+        },
+        {
+          "en": "CE marking",
+          "zh": "CE标志；是否可使用须核对对应符合性资料",
+          "example": "We will verify the CE documentation for the selected configuration.",
+          "example_zh": "我们会核实所选配置对应的CE文件。"
+        },
+        {
+          "en": "ISO 13485",
+          "zh": "医疗器械质量管理体系标准，不等同于某型号的产品批准",
+          "example": "Please check the certificate scope before describing the quality system.",
+          "example_zh": "介绍质量体系前，请核对证书范围。"
+        }
+      ]
+    },
+    {
+      "module": "生产与交期",
+      "items": [
+        {
+          "en": "production lead time",
+          "zh": "生产周期，须说明起算条件",
+          "example": "What is the production lead time for the patient lift order?",
+          "example_zh": "这批移位机订单的生产周期是多久？"
+        },
+        {
+          "en": "production schedule",
+          "zh": "生产计划；生产排期",
+          "example": "Please send the revised hospital bed production schedule.",
+          "example_zh": "请发送调整后的病床生产排期。"
+        },
+        {
+          "en": "bill of materials / BOM",
+          "zh": "物料清单",
+          "example": "Please use the approved BOM for this configuration.",
+          "example_zh": "请使用这一配置已批准的物料清单。"
+        },
+        {
+          "en": "work in progress / WIP",
+          "zh": "在制品；在制工作",
+          "example": "Please report WIP quantities by production stage.",
+          "example_zh": "请按生产阶段报告在制数量。"
+        },
+        {
+          "en": "backorder",
+          "zh": "已接受但尚待补供的订单或数量",
+          "example": "Please confirm the expected delivery date for the footrest backorder.",
+          "example_zh": "请确认待补供脚托的预计交付日期。"
+        },
+        {
+          "en": "production batch",
+          "zh": "生产批次",
+          "example": "Please identify the production batch in the progress report.",
+          "example_zh": "请在进度报告中注明生产批次。",
+          "phonetic": "/prəˈdʌkʃən bætʃ/"
+        },
+        {
+          "en": "partial shipment",
+          "zh": "部分装运；分批装运",
+          "example": "We can review a partial shipment subject to written approval.",
+          "example_zh": "经书面批准后，我们可以评估分批装运。"
+        },
+        {
+          "en": "cargo ready date / CRD",
+          "zh": "货物备妥日期，须约定备妥条件",
+          "example": "Could you confirm the cargo ready date and release status?",
+          "example_zh": "能否确认货妥日期和放行状态？"
+        },
+        {
+          "en": "Please confirm whether the deadline refers to dispatch or arrival.",
+          "zh": "请确认截止日期是指发货还是抵达。"
+        },
+        {
+          "en": "The schedule starts after the deposit and specifications are confirmed.",
+          "zh": "在预付款到账、规格确认后开始计算排期。"
+        },
+        {
+          "en": "The actuator delivery is later than the supplier confirmed.",
+          "zh": "电动推杆的交付晚于供应商确认的时间。"
+        },
+        {
+          "en": "We are reviewing the remaining work before confirming a revised schedule.",
+          "zh": "确认调整后排期之前，我们正在评估剩余工作。"
+        },
+        {
+          "en": "Could you prioritize the components for our trial order?",
+          "zh": "能否优先安排我们试单所需的零部件？"
+        },
+        {
+          "en": "The expedited batch still needs the required inspections and release approval.",
+          "zh": "加急批次仍需完成规定检验和放行批准。"
+        },
+        {
+          "en": "Please show the completed quantity at each production stage.",
+          "zh": "请列出各生产阶段已完成的数量。"
+        },
+        {
+          "en": "I will provide the next production update by [date, time, time zone].",
+          "zh": "我会在[日期、时间及时区]前提供下一次生产进度更新。"
+        }
+      ]
+    },
+    {
+      "module": "质检与工艺",
+      "items": [
+        {
+          "en": "QC inspection",
+          "zh": "质量检验",
+          "example": "Please confirm the QC inspection scope and acceptance criteria.",
+          "example_zh": "请确认质量检验范围与验收准则。"
+        },
+        {
+          "en": "dimensional tolerance",
+          "zh": "尺寸公差",
+          "example": "Check the mounting dimensions against the approved tolerances.",
+          "example_zh": "请按已批准的公差核查安装尺寸。"
+        },
+        {
+          "en": "root cause analysis",
+          "zh": "根本原因分析",
+          "example": "The root cause analysis is still in progress.",
+          "example_zh": "根本原因分析仍在进行中。"
+        },
+        {
+          "en": "corrective action",
+          "zh": "纠正措施，针对原因以防再次发生",
+          "example": "Please explain how the corrective action addresses the confirmed cause.",
+          "example_zh": "请说明纠正措施如何针对已确认的原因。"
+        },
+        {
+          "en": "torque specification",
+          "zh": "扭矩规范；规定扭矩要求",
+          "example": "Please follow the controlled torque specification and record the results.",
+          "example_zh": "请遵照受控扭矩规范，并记录结果。",
+          "phonetic": "/tɔːrk ˌspesɪfɪˈkeɪʃən/"
+        },
+        {
+          "en": "verification",
+          "zh": "验证；核实是否符合规定要求",
+          "example": "Please identify the completed verification activities and remaining work.",
+          "example_zh": "请列明已完成的验证活动和剩余工作。"
+        },
+        {
+          "en": "validation",
+          "zh": "确认；核实是否满足特定预期用途或应用",
+          "example": "A fit check alone does not complete design validation.",
+          "example_zh": "单次试装检查不能代表完成设计确认。"
+        },
+        {
+          "en": "certificate of compliance / certificate of conformity / CoC",
+          "zh": "符合性证明；须核实具体名称、签发方和范围",
+          "example": "Do you need a shipment CoC, an EU DoC, or a specific test report?",
+          "example_zh": "您需要出货符合性证明、欧盟符合性声明，还是某项测试报告？"
+        },
+        {
+          "en": "Please send the affected serial numbers, batch details, and clear photographs.",
+          "zh": "请发送受影响产品的序列号、批次信息及清晰照片。"
+        },
+        {
+          "en": "Let us agree the sampling plan and acceptance criteria before booking inspection.",
+          "zh": "预约检验之前，我们先约定抽样方案与验收准则。"
+        },
+        {
+          "en": "The inspection is complete; release authorization is still pending.",
+          "zh": "检验已完成；放行授权仍在等待中。"
+        },
+        {
+          "en": "Please compare the proposed surface finish with the approved sample.",
+          "zh": "请将拟采用的表面效果与已批准样品进行比较。"
+        },
+        {
+          "en": "Could we review the welding sequence to improve dimensional consistency?",
+          "zh": "能否评审焊接顺序，以改善尺寸一致性？"
+        },
+        {
+          "en": "Please confirm the drawing number and revision before preparing samples.",
+          "zh": "制作样品之前，请确认图纸编号与版次。"
+        },
+        {
+          "en": "Do not modify tooling or production settings before written change approval.",
+          "zh": "未经书面变更批准，不得修改工装或生产设定。"
+        },
+        {
+          "en": "Sample approval does not automatically release the revised process for mass production.",
+          "zh": "样品获批不自动代表修订后的工艺已获准用于量产。"
+        }
+      ]
+    },
+    {
+      "module": "DH01168智能话术",
+      "items": [
+        {
+          "en": "LiDAR / light detection and ranging",
+          "zh": "激光雷达；具体传感器配置以供货清单为准",
+          "example": "LiDAR uses laser light to measure distance.",
+          "example_zh": "激光雷达利用激光光信号测距。"
+        },
+        {
+          "en": "ultrasonic sensor",
+          "zh": "超声波传感器；不预设数量或覆盖范围",
+          "example": "Ultrasonic sensors use sound waves for sensing.",
+          "example_zh": "超声波传感器利用声波进行感知。"
+        },
+        {
+          "en": "automatic deceleration",
+          "zh": "自动减速",
+          "example": "The DH01168 supports automatic slowing in response to detected obstacles.",
+          "example_zh": "DH01168支持根据探测障碍作出自动减速响应。"
+        },
+        {
+          "en": "automatic braking",
+          "zh": "自动刹车；触发条件按具体设计说明",
+          "example": "Let us review the configuration-specific braking response.",
+          "example_zh": "我们一起了解这一配置对应的刹车响应。"
+        },
+        {
+          "en": "app-based control",
+          "zh": "基于手机APP的控制；具体项目与权限须确认",
+          "example": "The DH01168 supports app-based control.",
+          "example_zh": "DH01168支持手机APP控制。"
+        },
+        {
+          "en": "voice prompts / voice alerts",
+          "zh": "语音提示；不等于接受语音指令",
+          "example": "Voice prompts provide spoken information to the user.",
+          "example_zh": "语音提示向用户提供语音信息。"
+        },
+        {
+          "en": "battery management system / BMS",
+          "zh": "电池管理系统；DH01168具体支持项目待核实",
+          "example": "We need to confirm the BMS functions for the selected battery.",
+          "example_zh": "需要核实所选电池的电池管理功能。"
+        },
+        {
+          "en": "regenerative braking",
+          "zh": "再生制动；是否具备待核实，不承诺续航增益",
+          "example": "Regenerative braking must be confirmed for the supplied configuration.",
+          "example_zh": "需确认实际供货配置是否支持再生制动。"
+        },
+        {
+          "en": "The DH01168 combines obstacle-avoidance assistance, automatic slowing or braking, app control, and voice prompts.",
+          "zh": "DH01168结合了避障辅助、自动减速或刹车、APP控制和语音提示功能。"
+        },
+        {
+          "en": "Obstacle avoidance is an extra layer of assistance; users still need to follow the operating instructions.",
+          "zh": "避障增加了一层辅助；用户仍需遵循操作说明。"
+        },
+        {
+          "en": "Tell us about your daily routes, and we can focus the demonstration on your needs.",
+          "zh": "请介绍您的日常路线，我们可以围绕您的需求安排演示。"
+        },
+        {
+          "en": "For care facilities, we can explain the functions to purchasing teams and caregivers together.",
+          "zh": "面向养老护理机构，可以一起向采购团队和照护人员讲解功能。"
+        },
+        {
+          "en": "For distributors, these confirmed functions provide a clear, easy-to-explain product story.",
+          "zh": "面向经销商，这些已确认功能构成清楚、容易讲解的产品介绍主线。"
+        },
+        {
+          "en": "Voice prompts do not by themselves mean that spoken-command control is supported.",
+          "zh": "语音提示本身不代表支持语音指令控制。"
+        },
+        {
+          "en": "App control does not by itself confirm remote monitoring or autonomous navigation.",
+          "zh": "APP控制本身不代表支持远程监控或自主导航。"
+        },
+        {
+          "en": "I will check the documented fault response and control priority before describing either function.",
+          "zh": "介绍故障响应或控制优先级之前，我会先核对文件规定。"
+        }
+      ]
+    },
+    {
+      "module": "沟通与跟进",
+      "items": [
+        {
+          "en": "Good morning. I'm [Name] from DAYANG MEDICAL in Guangdong, China.",
+          "zh": "早上好，我是来自中国广东大洋医疗的[姓名]。"
+        },
+        {
+          "en": "Which product category and customer segment are you focusing on?",
+          "zh": "您重点关注哪类产品和哪类客户？"
+        },
+        {
+          "en": "Could you share your target quantity and budget?",
+          "zh": "能否告知目标采购数量和预算？"
+        },
+        {
+          "en": "Which items are included in the competing offer?",
+          "zh": "对方报价包含哪些项目？"
+        },
+        {
+          "en": "Let me confirm the model, configuration, quantity, and delivery requirements.",
+          "zh": "我来确认一下型号、配置、数量和交付要求。"
+        },
+        {
+          "en": "Which destination port should we quote for?",
+          "zh": "请问应按哪个目的港报价？"
+        },
+        {
+          "en": "Please send your shipping instructions in writing.",
+          "zh": "请以书面形式发送装运指示。"
+        },
+        {
+          "en": "Could you repeat the figure and confirm the currency?",
+          "zh": "能否重复这个数字，并确认币种？"
+        },
+        {
+          "en": "Which time zone should we use for the follow-up call?",
+          "zh": "后续电话应按哪个时区安排？"
+        },
+        {
+          "en": "I will summarize the agreed points and next steps in a follow-up email.",
+          "zh": "我会在跟进邮件中汇总已约定事项和下一步行动。"
+        }
+      ]
+    },
+    {
+      "module": "展会接待",
+      "items": [
+        {
+          "en": "Hi. We're a US distributor looking for patient lifts. Could you introduce your product range?",
+          "zh": "您好，我们是寻找患者移位机的美国经销商。能否介绍一下您的产品范围？",
+          "role": "Client",
+          "keywords": [
+            "patient lifts",
+            "wheelchairs",
+            "walking aids",
+            "care beds",
+            "mobility equipment"
+          ]
+        },
+        {
+          "en": "Welcome to DAYANG MEDICAL. Our range includes patient lifts, wheelchairs, walking aids, care beds, hospital beds, and crutches.",
+          "zh": "欢迎来到大洋医疗。我们的产品包括移位机、轮椅、助行器、护理床、病床和拐杖。",
+          "role": "You"
+        },
+        {
+          "en": "Can you demonstrate the DY-L200 and explain what we should check for home care use?",
+          "zh": "能否演示DY-L200，并说明居家护理应用应核查哪些事项？",
+          "role": "Client",
+          "keywords": [
+            "demonstration",
+            "demonstrate",
+            "weight",
+            "doorway",
+            "requirements"
+          ]
+        },
+        {
+          "en": "Certainly. I'll introduce the controls using a demonstration dummy. We should also confirm patient weight, bed clearance, doorway width, and sling compatibility.",
+          "zh": "当然。我会使用演示假人介绍控制方式，还需要确认患者体重、床下空间、门宽和吊带兼容性。",
+          "role": "You"
+        },
+        {
+          "en": "What are the safe working load and warranty terms in this practice case?",
+          "zh": "在本次练习设定中，安全工作载荷和保修条款是什么？",
+          "role": "Client",
+          "keywords": [
+            "180",
+            "capacity",
+            "24 months",
+            "warranty",
+            "covered"
+          ]
+        },
+        {
+          "en": "For this practice case, the safe working load is 180 kg. The frame and actuator are covered for 24 months from delivery; the battery is covered for 12 months.",
+          "zh": "【练习数据】安全工作载荷为180公斤。从交付日起，车架与推杆保修24个月，电池保修12个月。",
+          "role": "You"
+        },
+        {
+          "en": "Could you quote 20 units and tell us what is included?",
+          "zh": "能否按20台报价，并说明包含哪些项目？",
+          "role": "Client",
+          "keywords": [
+            "460",
+            "FOB",
+            "sling",
+            "charger",
+            "freight"
+          ]
+        },
+        {
+          "en": "For this practice quotation, 20 units are USD 460 each, FOB Shenzhen, including one compatible sling and charger. International freight, import duties, and taxes are extra.",
+          "zh": "【练习报价】20台单价为460美元，深圳港船上交货，每台包含一条兼容吊带和充电器；国际运费、进口关税和税费另计。",
+          "role": "You"
+        },
+        {
+          "en": "Please email the specifications and quotation. Can we also arrange a follow-up call?",
+          "zh": "请通过邮件发送规格和报价。还能安排一次后续电话吗？",
+          "role": "Client",
+          "keywords": [
+            "email",
+            "send",
+            "tomorrow",
+            "time zone",
+            "follow-up"
+          ]
+        },
+        {
+          "en": "I'll email the practice quotation and specifications tomorrow. Which time zone should we use for the follow-up call?",
+          "zh": "我明天会通过邮件发送这份练习报价及规格。后续电话应按哪个时区安排？",
+          "role": "You"
+        }
+      ],
+      "scene": "exhibition"
+    },
+    {
+      "module": "价格谈判",
+      "items": [
+        {
+          "en": "Your practice price of USD 460 is above another offer at USD 420. Can you do better?",
+          "zh": "您的练习报价为460美元，高于另一份420美元的报价。可以再优惠吗？",
+          "role": "Client",
+          "keywords": [
+            "compare",
+            "configuration",
+            "accessories",
+            "warranty",
+            "included"
+          ]
+        },
+        {
+          "en": "I understand your concern. Could we first compare the configurations, accessories, packaging, and warranty coverage to make sure both offers include the same items?",
+          "zh": "我理解您的顾虑。我们能否先比较配置、配件、包装和保修范围，确保两份报价包含相同项目？",
+          "role": "You"
+        },
+        {
+          "en": "We want only 20 units for a trial. What options can you review?",
+          "zh": "我们只想先试单20台。您可以评估哪些方案？",
+          "role": "Client",
+          "keywords": [
+            "20",
+            "standard packaging",
+            "review",
+            "confirm",
+            "written"
+          ]
+        },
+        {
+          "en": "Let me review options for 20 units with standard packaging. Any revised price will need written confirmation before you place the order.",
+          "zh": "我来评估20台采用标准包装的方案。任何调整后的价格都需在下单前书面确认。",
+          "role": "You"
+        },
+        {
+          "en": "What lead time and payment terms should we use for this exercise?",
+          "zh": "本次练习应采用什么交期和付款条件？",
+          "role": "Client",
+          "keywords": [
+            "30 days",
+            "deposit",
+            "specification",
+            "30%",
+            "70%"
+          ]
+        },
+        {
+          "en": "For this exercise, allow 30 days after deposit receipt and specification approval. Payment is 30% upfront, with 70% before shipment.",
+          "zh": "【练习条件】预付款到账、规格批准后安排30天；付款为预付30%，发货前支付70%。",
+          "role": "You"
+        },
+        {
+          "en": "If we plan a later order of 50 units, could that support a volume discount?",
+          "zh": "如果我们计划之后订购50台，是否有助于获得数量优惠？",
+          "role": "Client",
+          "keywords": [
+            "volume",
+            "50",
+            "review",
+            "discount",
+            "approved"
+          ]
+        },
+        {
+          "en": "We can review a volume-based offer once you confirm the 50-unit plan. I'll check the approved discount options before quoting a revised price.",
+          "zh": "确认50台计划后，我们可以评估按数量制定的方案。提供调整后的报价前，我会核实获准的优惠选项。",
+          "role": "You"
+        },
+        {
+          "en": "Please clarify the quotation validity and shipping responsibilities before we decide.",
+          "zh": "在我们决定之前，请明确报价有效期和运输责任。",
+          "role": "Client",
+          "keywords": [
+            "seven days",
+            "valid",
+            "Incoterm",
+            "freight",
+            "writing"
+          ]
+        },
+        {
+          "en": "For this exercise, the quotation is valid for seven days. I'll confirm the Incoterm, included items, and freight responsibilities in writing.",
+          "zh": "【练习条件】报价有效期为7天。我会书面确认贸易术语、包含项目和运费责任。",
+          "role": "You"
+        }
+      ],
+      "scene": "negotiation"
+    },
+    {
+      "module": "客诉处理",
+      "items": [
+        {
+          "en": "In this practice case, we inspected 80 wheelchairs and found scratches on four frames. Can you help?",
+          "zh": "【练习情况】我们检查80台轮椅，发现4台车架有划痕。您能协助处理吗？",
+          "role": "Client",
+          "keywords": [
+            "serial numbers",
+            "batch",
+            "photos",
+            "photographs",
+            "inspected"
+          ]
+        },
+        {
+          "en": "I'm sorry this has disrupted your work. Please send the affected serial numbers, batch details, quantities inspected, and clear photographs of the frames and packaging.",
+          "zh": "很遗憾这给您的工作带来影响。请提供受影响产品的序列号、批次、已检数量，以及车架和包装的清晰照片。",
+          "role": "You"
+        },
+        {
+          "en": "One of those four frames also has an irregular-looking weld. Is the weld defective?",
+          "zh": "这4台中有1台的焊缝外观也不规则。焊缝是否不合格？",
+          "role": "Client",
+          "keywords": [
+            "technical assessment",
+            "separately",
+            "evidence",
+            "photos",
+            "review"
+          ]
+        },
+        {
+          "en": "We will record the weld concern separately and request a technical assessment. Photographs alone cannot establish the final conclusion.",
+          "zh": "我们会单独记录焊缝疑点，并申请技术评估。仅凭照片不能确定最终结论。",
+          "role": "You"
+        },
+        {
+          "en": "Can you promise an immediate free replacement for every affected wheelchair?",
+          "zh": "您能承诺立即免费更换每台受影响的轮椅吗？",
+          "role": "Client",
+          "keywords": [
+            "assessment",
+            "review",
+            "replacement",
+            "cost",
+            "confirm"
+          ]
+        },
+        {
+          "en": "We will assess the evidence and propose a remedy. Replacement, cost allocation, and any shipment changes need confirmation after technical and commercial review.",
+          "zh": "我们会评估证据并提出解决方案。更换、费用分担及出货调整需在技术与商务审核后确认。",
+          "role": "You"
+        },
+        {
+          "en": "Could we arrange an independent inspection before agreeing on the next step?",
+          "zh": "约定下一步之前，能否安排独立检验？",
+          "role": "Client",
+          "keywords": [
+            "scope",
+            "sample size",
+            "inspection",
+            "fees",
+            "checklist"
+          ]
+        },
+        {
+          "en": "Yes. Let's agree the inspection scope, checklist, sample size, access arrangements, and fees before booking the inspection.",
+          "zh": "可以。预约检验之前，我们先约定检验范围、检查表、样本量、现场检查安排及费用。",
+          "role": "You"
+        },
+        {
+          "en": "When will you send the review plan, and can the affected units be released now?",
+          "zh": "您何时发送评审计划？受影响产品现在能否放行？",
+          "role": "Client",
+          "keywords": [
+            "plan",
+            "date",
+            "pending",
+            "review",
+            "authorization"
+          ]
+        },
+        {
+          "en": "I'll send the proposed review plan by [date]. The affected units remain pending review; any disposition or shipment release requires documented assessment and authorization.",
+          "zh": "我会在[日期]前发送评审计划建议。受影响产品仍待评审；任何处置或出货放行都需要书面评估和授权。",
+          "role": "You"
+        }
+      ],
+      "scene": "complaint"
+    }
+  ]
+}

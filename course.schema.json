@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dayang-english-coach:course:1",
+  "title": "DAYANG MEDICAL 英语课程包",
+  "description": "ID可省略，应用会生成稳定ID；同包所有学习项ID必须唯一。全包最多10000项，导入文件最多5 MiB。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pack_name", "version", "modules"],
+  "properties": {
+    "id": { "$ref": "#/$defs/id" },
+    "pack_name": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" },
+    "version": { "type": "string", "minLength": 1, "maxLength": 40, "pattern": "\\S" },
+    "modules": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/module" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "not": { "enum": ["__proto__", "prototype", "constructor"] } },
+    "longText": { "type": "string", "minLength": 1, "maxLength": 4000, "pattern": "\\S" },
+    "module": {
+      "type": "object", "additionalProperties": false, "required": ["module", "items"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "module": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" },
+        "scene": { "type": "string", "enum": ["exhibition", "negotiation", "complaint"] },
+        "items": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "#/$defs/item" } }
+      }
+    },
+    "item": {
+      "type": "object", "additionalProperties": false, "required": ["en", "zh"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "en": { "$ref": "#/$defs/longText" },
+        "zh": { "$ref": "#/$defs/longText" },
+        "phonetic": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S" },
+        "example": { "$ref": "#/$defs/longText" },
+        "example_zh": { "$ref": "#/$defs/longText" },
+        "role": { "type": "string", "minLength": 1, "maxLength": 40, "pattern": "\\S" },
+        "keywords": { "type": "array", "maxItems": 30, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "\\S" } },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 2000, "pattern": "\\S" }
+      }
+    }
+  }
+}

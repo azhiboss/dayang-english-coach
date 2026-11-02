@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0C6DB2" id="theme-color">
+  <meta name="description" content="大洋医疗外贸英语私教：本地课程卡片、口语跟读、客户情景对练与离线复习。">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="大洋英语">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>大洋医疗外贸英语私教</title>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到学习内容</a>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-lockup">
+        <img class="app-mark" src="./icons/icon.svg" width="44" height="44" alt="">
+        <div><p class="brand-name">大洋医疗</p><h1>外贸英语私教</h1></div>
+      </div>
+      <button id="install-help" class="button button-quiet" type="button">安装到手机</button>
+    </header>
+
+    <div id="update-banner" class="notice update-notice" hidden>
+      <span>新版本已准备好，学习数据将保留。</span><button id="update-app" class="button button-small" type="button">更新并重新打开</button>
+    </div>
+    <div id="boot-screen" class="boot-screen" role="status">正在打开你的随身话术本…</div>
+    <section id="fatal-screen" class="notice notice-error" hidden aria-live="assertive">
+      <h2>暂时无法保存学习数据</h2><p id="fatal-message"></p><button id="retry-boot" class="button" type="button">重新打开</button>
+    </section>
+
+    <div id="app-content" hidden>
+      <section class="course-bar" aria-label="当前课程与学习进度">
+        <label class="field-label" for="pack-select">当前课程包</label>
+        <select id="pack-select" aria-describedby="pack-description"></select>
+        <div class="course-meta"><span id="pack-description"></span><span id="offline-status" class="connection-status">正在准备离线资源</span></div>
+        <div class="progress-strip">
+          <button type="button" id="summary-mastered" class="stat-link"><strong id="mastered-count">0</strong><span>已掌握</span></button>
+          <button type="button" id="summary-review" class="stat-link"><strong id="review-count">0</strong><span>待复习</span></button>
+          <button type="button" id="summary-favorite" class="stat-link"><strong id="favorite-count">0</strong><span>收藏</span></button>
+          <span class="today-count" id="today-count">今天从一句开始</span>
+        </div>
+      </section>
+
+      <main id="main-content" tabindex="-1">
+        <section id="panel-learn" class="view-panel" role="tabpanel" aria-labelledby="tab-learn">
+          <div class="section-heading"><div><p class="section-caption">随时练好下一次沟通</p><h2>今天，先讲清一句。</h2></div></div>
+          <div class="filters">
+            <label>学习模块<select id="module-filter"></select></label>
+            <label>学习范围<select id="status-filter"><option value="all">全部内容</option><option value="new">还未掌握</option><option value="review">待复习</option><option value="mastered">已掌握</option><option value="favorite">我的收藏</option></select></label>
+          </div>
+          <div class="learning-layout">
+            <div>
+              <article id="learning-card" class="learning-card">
+                <div class="card-meta"><span id="item-module" class="module-label"></span><span id="item-position"></span></div>
+                <span id="item-role" class="role-label" hidden></span>
+                <h3 id="item-en" lang="en-US" class="english-display"></h3>
+                <p id="item-phonetic" class="phonetic" lang="en" hidden></p>
+                <div class="card-tools">
+                  <button id="speak-item" class="button" type="button">🔊 发音</button>
+                  <button id="toggle-meaning" class="button button-secondary" type="button" aria-expanded="false" aria-controls="item-meaning">显示释义</button>
+                  <button id="practice-current" class="button button-link" type="button">去跟读</button>
+                </div>
+                <div id="item-meaning" class="meaning-block" hidden><p id="item-zh"></p><div id="example-block" class="example-block" hidden><span class="field-label">用在客户沟通中</span><p id="item-example" lang="en-US"></p><p id="item-example-zh"></p><button id="speak-example" class="button button-link" type="button">🔊 朗读例句</button></div></div>
+              </article>
+              <div id="learning-empty" class="empty-state" hidden><h3>这个范围暂时没有内容</h3><p>试试其他模块，或先把句子标记为待复习、收藏。</p><button id="reset-filters" class="button" type="button">查看全部内容</button></div>
+              <div class="mark-actions" id="mark-actions">
+                <button id="mark-mastered" class="button button-secondary" type="button" aria-pressed="false">✅ 已掌握</button>
+                <button id="mark-review" class="button button-secondary" type="button" aria-pressed="false">🔁 待复习</button>
+                <button id="mark-favorite" class="button button-secondary" type="button" aria-pressed="false">⭐ 收藏</button>
+              </div>
+              <div class="card-navigation" id="card-navigation"><button id="previous-item" class="button button-secondary" type="button">上一条</button><button id="random-item" class="button button-quiet" type="button">随机一条</button><button id="next-item" class="button button-secondary" type="button">下一条</button></div>
+            </div>
+            <aside class="practice-aside">
+              <details id="voice-settings" class="settings-details">
+                <summary>语速与本地声音</summary>
+                <label for="speech-rate">朗读语速 <output id="rate-value" for="speech-rate">0.85×</output></label>
+                <input id="speech-rate" type="range" min="0.6" max="1" step="0.05" value="0.85">
+                <div class="range-labels"><span>0.6× 慢速</span><span>1.0× 自然</span></div>
+                <label for="voice-select">设备本地英语语音</label><select id="voice-select"></select>
+                <p id="voice-status" class="supporting-text"></p>
+                <button id="stop-speech" class="button button-quiet" type="button">停止朗读</button>
+              </details>
+              <p class="learning-tip">先听一遍，遮住释义说一遍，再把型号或数量换成自己的订单信息。</p>
+            </aside>
+          </div>
+        </section>
+
+        <section id="panel-practice" class="view-panel" role="tabpanel" aria-labelledby="tab-practice" hidden>
+          <div class="section-heading"><div><p class="section-caption">把看懂的句子说出来</p><h2>听一句，跟读一句。</h2></div><button id="use-learning-target" class="button button-quiet" type="button">用当前学习卡</button></div>
+          <article class="target-card"><span id="practice-module" class="module-label"></span><h3 id="practice-target" lang="en-US"></h3><p id="practice-translation" class="supporting-text"></p><button id="speak-target" class="button button-secondary" type="button">🔊 听目标句</button></article>
+          <p id="recognition-support" class="supporting-text"></p>
+          <div class="recording-toolbar"><button id="start-practice" class="button" type="button">🎤 开始跟读</button><button id="stop-practice" class="button button-secondary" type="button" disabled>结束识别</button><span id="practice-status" class="recording-status" role="status">也可以直接输入英文练习</span></div>
+          <label class="field-label" for="practice-input">识别结果 / 手动输入英文</label><textarea id="practice-input" rows="4" maxlength="4000" lang="en-US" placeholder="说出的英文会显示在这里，也可以直接输入。" autocapitalize="sentences" spellcheck="false"></textarea>
+          <div class="action-line"><button id="compare-practice" class="button" type="button">对比并保存练习</button><button id="clear-practice" class="button button-quiet" type="button">清空输入</button></div>
+          <p class="supporting-text">评分比较识别文字与原句，不是发音音素评分。长句可分段练习；识别错听也可能影响结果。</p>
+          <section id="practice-result" class="result-panel" aria-live="polite" hidden><div class="result-heading"><h3>这一次的文字匹配</h3><strong id="practice-score" class="score-number"></strong></div><p id="practice-result-summary"></p><div id="word-alignment" class="word-alignment" lang="en-US"></div><p class="word-legend">匹配 · 待练词 · 漏读 · 多读，均有文字标注</p><p id="weak-save-status" class="supporting-text"></p><button id="go-weak-words" class="button button-link" type="button">查看弱项词库</button></section>
+        </section>
+
+        <section id="panel-scenario" class="view-panel" role="tabpanel" aria-labelledby="tab-scenario" hidden>
+          <div class="section-heading"><div><p class="section-caption">提前练好客户会问的问题</p><h2>轮到你回应客户。</h2></div></div>
+          <div class="filters scenario-filters"><label>选择情景<select id="scenario-select"><option value="exhibition">展会接待</option><option value="negotiation">价格谈判</option><option value="complaint">客诉处理</option></select></label><fieldset class="mode-switch"><legend>回答方式</legend><label><input type="radio" name="scenario-mode" value="voice" checked>语音模式</label><label><input type="radio" name="scenario-mode" value="text">文本模式</label></fieldset></div>
+          <div id="scenario-intro" class="scenario-intro"><h3 id="scenario-title">展会接待</h3><p id="scenario-description">把产品介绍变成一次自然的客户交流。</p><p class="supporting-text">这是关键词练习，不判断商务承诺或产品参数是否正确。</p><button id="start-scenario" class="button" type="button">开始情景对练</button></div>
+          <div id="scenario-session" hidden>
+            <div class="scenario-progress"><span id="scenario-source"></span><strong id="scenario-step"></strong></div>
+            <article class="client-message"><span class="role-label">Client 客户</span><h3 id="client-question" lang="en-US"></h3><details><summary>查看问题中文</summary><p id="client-translation"></p></details><button id="speak-client" class="button button-secondary" type="button">🔊 重听客户问题</button></article>
+            <div id="scenario-voice-tools" class="recording-toolbar"><button id="start-scenario-voice" class="button" type="button">🎤 语音回答</button><button id="stop-scenario-voice" class="button button-secondary" type="button" disabled>结束识别</button></div>
+            <p id="scenario-status" class="recording-status" role="status">先组织思路，再说出你的回答。</p>
+            <label class="field-label" for="scenario-input">你的英文回答</label><textarea id="scenario-input" rows="4" maxlength="4000" lang="en-US" placeholder="输入或说出你的回答…" spellcheck="false"></textarea>
+            <div class="action-line"><button id="check-scenario" class="button" type="button">提交回答</button><button id="show-scenario-reference" class="button button-quiet" type="button">显示参考表达</button></div>
+            <div id="scenario-feedback" class="feedback-panel" role="status" hidden></div>
+            <div id="scenario-reference" class="reference-block" hidden><h4>参考表达</h4><p id="reference-en" lang="en-US"></p><p id="reference-zh"></p><button id="speak-reference" class="button button-link" type="button">🔊 朗读参考表达</button></div>
+            <div class="action-line scenario-next"><button id="next-scenario" class="button" type="button" disabled>下一轮</button><button id="restart-scenario" class="button button-quiet" type="button">重新开始</button></div>
+          </div>
+          <div id="scenario-complete" class="empty-state" hidden><span class="completion-mark" aria-hidden="true">✓</span><h3>这一轮客户沟通，练完了。</h3><p id="scenario-complete-summary"></p><button id="repeat-scenario" class="button" type="button">再练一次</button><button id="change-scenario" class="button button-quiet" type="button">换一个情景</button></div>
+        </section>
+
+        <section id="panel-data" class="view-panel" role="tabpanel" aria-labelledby="tab-data" hidden>
+          <div class="section-heading"><div><p class="section-caption">你的学习记录，留在本机</p><h2>课程与学习资料。</h2></div></div>
+          <p class="supporting-text">课程、进度、收藏与弱项保存在当前浏览器。换设备或清理网站数据前，请先导出备份。语音识别由浏览器或系统服务处理。</p>
+          <section class="data-section"><div class="subsection-heading"><h3>备份与外观</h3><label class="theme-label">外观<select id="theme-select"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div><div class="action-line"><button id="export-backup" class="button" type="button">导出备份 JSON</button><button id="export-course" class="button button-secondary" type="button">导出当前课程</button></div><p class="supporting-text">备份包含所有课程、练习进度、收藏、弱项与设置。没有账号，也不会自动同步。</p></section>
+          <section class="data-section"><h3>导入课程或备份</h3><label class="file-picker" for="import-file">选择 JSON 文件<input id="import-file" type="file" accept=".json,application/json"></label><details class="paste-details"><summary>或粘贴 JSON 内容</summary><label class="sr-only" for="import-text">课程或备份JSON</label><textarea id="import-text" rows="6" maxlength="52428800" placeholder='{"pack_name":"我的课程","version":"2026.11","modules":[…]}' spellcheck="false"></textarea><button id="preview-pasted" class="button button-secondary" type="button">检查粘贴内容</button></details><p class="supporting-text">课程最大5 MiB，完整备份最大50 MiB。先检查格式并预览，再确认写入。</p><div id="import-error" class="notice notice-error" role="alert" hidden></div><div id="import-preview" class="import-preview" hidden><h4 id="import-preview-title"></h4><p id="import-preview-description"></p><p id="import-preview-policy" class="supporting-text"></p><div class="action-line"><button id="confirm-import" class="button" type="button">确认导入</button><button id="cancel-import" class="button button-quiet" type="button">取消</button></div></div><p class="supporting-text resource-links"><a href="./demo.json" download="dayang-demo.json">下载示例课程</a><a href="./course.schema.json" download>查看课程 JSON Schema</a></p></section>
+          <section class="data-section"><h3>已装入的课程</h3><div id="pack-list" class="pack-list"></div></section>
+          <section id="weak-section" class="data-section"><div class="subsection-heading"><h3>弱项词库 <span id="weak-count" class="count-badge">0</span></h3></div><label class="sr-only" for="weak-search">搜索弱项词</label><input id="weak-search" type="search" placeholder="搜索需要多练一次的词…" autocomplete="off"><p id="weak-description" class="supporting-text">跟读中错读或漏读的目标词会自动记在这里。</p><div id="weak-list" class="weak-list"></div><button id="more-weak" class="button button-secondary" type="button" hidden>显示更多弱项</button></section>
+          <p class="supporting-text app-footnote">Dayang English Coach · 2026.11<br><a href="./README.md">使用说明与已知限制</a></p>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" role="tablist" aria-label="学习功能">
+        <button id="tab-learn" type="button" role="tab" aria-controls="panel-learn" aria-selected="true" data-view="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h7a3 3 0 0 1 2 1 3 3 0 0 1 2-1h7v16h-7a3 3 0 0 0-2 1 3 3 0 0 0-2-1H3zM12 5v16"/></svg><span>学习</span></button>
+        <button id="tab-practice" type="button" role="tab" aria-controls="panel-practice" aria-selected="false" data-view="practice"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>跟读</span></button>
+        <button id="tab-scenario" type="button" role="tab" aria-controls="panel-scenario" aria-selected="false" data-view="scenario"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v13H9l-5 5zM8 7h8M8 11h5"/></svg><span>对练</span></button>
+        <button id="tab-data" type="button" role="tab" aria-controls="panel-data" aria-selected="false" data-view="data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5"/></svg><span>数据</span></button>
+      </nav>
+    </div>
+  </div>
+
+  <dialog id="help-dialog" class="help-dialog"><div class="subsection-heading"><h2>把私教装进 iPhone</h2><button id="close-help" class="button button-quiet" type="button">关闭</button></div><ol><li>用 Safari 打开这个 App 的 <strong>HTTPS 地址</strong>。</li><li>点击“分享”，选择“添加到主屏幕”；必要时先点“更多”。</li><li>如显示“作为网页 App 打开”，将其打开，再点“添加”。</li><li>联网完整打开一次，等待“离线资源已就绪”。之后可离线读课和复习。</li></ol><p>语音识别可能仍需要网络与系统支持。电脑的 localhost 可本地预览；iPhone 访问普通局域网 HTTP 地址时，离线缓存和麦克风功能会受限。</p><p>找不到本地英语语音时，可在 iPhone 的“辅助功能”语音相关设置中安装英语声音，再返回点击发音。</p><p><a href="./README.md">打开完整使用说明</a></p></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="notice notice-error">本应用需要JavaScript来显示课程与保存进度，请在浏览器中启用JavaScript。</p></noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
