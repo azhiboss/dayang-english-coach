@@ -7,6 +7,9 @@
  * https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/speech/SpeechSynthesis.cpp
  */
 
+export const DEFAULT_RATE = 0.75;
+export const DEFAULT_PITCH = 1.0;
+
 const voiceSubscribers = new Set();
 let observedSynthesis = null;
 let voiceChangeListener = null;
@@ -41,13 +44,17 @@ function isSupported() {
 
 function voicePriority(voice) {
   const language = String(voice.lang || '').replaceAll('_', '-').toLowerCase();
-  const name = String(voice.name || '');
-  // American English takes priority over higher-quality voices of other locales.
-  let priority = /^en-us(?:-|$)/.test(language) ? 1000 : 0;
-  if (/premium/i.test(name)) priority += 80;
-  if (/enhanced/i.test(name)) priority += 70;
-  if (/neural/i.test(name)) priority += 60;
-  if (/natural/i.test(name)) priority += 50;
+  const identity = `${voice.name || ''} ${voice.voiceURI || ''}`;
+  // The API has no quality field. Use labels exposed by the system as hints.
+  // Keep American English first, then prefer installed higher-quality variants.
+  let priority = /^en-us(?:-|$)/.test(language) ? 10000 : 0;
+  if (/premium|优质|高品质/i.test(identity)) priority += 4000;
+  else if (/enhanced|增强/i.test(identity)) priority += 3000;
+  else if (/neural|神经/i.test(identity)) priority += 2000;
+  else if (/natural|自然/i.test(identity)) priority += 1000;
+  // Prefer Samantha and Apple system voices when quality labels are equal.
+  if (/samantha/i.test(identity)) priority += 500;
+  if (/com\.apple\.(?:voice|speech|ttsbundle)/i.test(identity)) priority += 200;
   if (voice.default === true) priority += 1;
   return priority;
 }
@@ -134,7 +141,7 @@ export const TTS = {
    * audible playback has been verified. Native failures arrive through onError.
    * No network TTS, automatic retries, or default/remote voice fallback is used.
    */
-  speak(text, { rate = 0.85, voiceURI, onEnd, onError } = {}) {
+  speak(text, { rate = DEFAULT_RATE, voiceURI, onEnd, onError } = {}) {
     if (!isSupported()) {
       callSafely(onError, '当前浏览器不支持系统朗读，请使用支持语音朗读的浏览器。', 'unsupported');
       return false;
@@ -166,7 +173,8 @@ export const TTS = {
       utterance.lang = voice.lang || 'en-US';
       utterance.rate = Number.isFinite(numericRate)
         ? Math.min(1, Math.max(0.6, numericRate))
-        : 0.85;
+        : DEFAULT_RATE;
+      utterance.pitch = DEFAULT_PITCH;
       let completed = false;
       const finish = (failed, code) => {
         if (completed || currentUtterance !== utterance) return;
@@ -184,6 +192,15 @@ export const TTS = {
       if (synth.paused) synth.resume();
       // This call must remain synchronous in the user's click/tap call chain.
       synth.speak(utterance);
+      try {
+        globalThis.console?.info?.('[Dayang TTS] Using voice:', voice.name, {
+          lang: utterance.lang,
+          rate: utterance.rate,
+          pitch: utterance.pitch,
+        });
+      } catch {
+        // Debug logging must not interrupt speech that has already started.
+      }
       return true;
     } catch {
       cancel();

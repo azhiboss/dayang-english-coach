@@ -1,5 +1,5 @@
 import { DB } from './db.js';
-import { TTS } from './tts.js';
+import { TTS, DEFAULT_RATE } from './tts.js';
 import { SpeechInput, compareWords } from './asr.js';
 import { validatePack, parseImport, readFileText, downloadJSON } from './import.js';
 
@@ -11,7 +11,7 @@ const state = {
   moduleId: 'all', filter: 'all', index: 0, filtered: [], reveal: false,
   view: 'learn', practice: null, practiceBusy: false, scenarioBusy: false,
   generation: 0, listeningFor: null, scene: null, sceneMode: 'voice',
-  rate: 0.85, voiceURI: '', theme: 'system', importCandidate: null,
+  rate: DEFAULT_RATE, voiceURI: '', theme: 'system', importCandidate: null,
   importGeneration: 0, importing: false, weakLimit: 40,
   offlineReady: false, waitingWorker: null, updateRequested: false,
 };
@@ -595,14 +595,14 @@ async function confirmImport() {
 
 async function reloadData(preferredId) {
   const [packs, progress, words, rate, voiceURI, theme, savedPack] = await Promise.all([
-    DB.listPacks(), DB.listProgress(), DB.listWeakWords(), DB.getSetting('rate', 0.85),
+    DB.listPacks(), DB.listProgress(), DB.listWeakWords(), DB.getSetting('rate', DEFAULT_RATE),
     DB.getSetting('voiceURI', ''), DB.getSetting('theme', 'system'), DB.getSetting('preferredPack', ''),
   ]);
   state.packs = packs;
   state.progress = new Map(progress.map(record => [key(record.packId, record.itemId), record]));
   state.weakWords = words;
   state.packId = [preferredId, savedPack, state.packId, packs[0]?.id].find(id => packs.some(pack => pack.id === id)) || '';
-  state.rate = Number.isFinite(rate) ? Math.max(0.6, Math.min(1, rate)) : 0.85;
+  state.rate = Number.isFinite(rate) ? Math.max(0.6, Math.min(1, rate)) : DEFAULT_RATE;
   state.voiceURI = typeof voiceURI === 'string' ? voiceURI : '';
   state.theme = ['system','light','dark'].includes(theme) ? theme : 'system';
   state.moduleId = 'all';state.index = 0;state.reveal = false;

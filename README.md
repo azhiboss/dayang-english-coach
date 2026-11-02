@@ -105,6 +105,8 @@ python3 -m http.server 8000
 
 只选择浏览器报告 `localService === true` 的英语语音。找不到本地英语语音时，应用给出安装提示，不回退到云端语音。可在 iPhone 系统的“辅助功能”下查找“朗读与语音”或“朗读内容”及其“声音”，安装英语语音后返回，再次点击朗读。设置名称随系统版本变化；系统已下载语音是否向浏览器开放，也由系统和浏览器决定。
 
+自动选择优先本地美式英语；依据声音名称及voiceURI中的Premium、Enhanced、Neural或Natural标记排序，同等级优先Samantha及Apple系统声音。这些名称只用于偏好判断，不保证语音质量或神经语音可用。已手动选择的可用语音仍优先保留。默认语速为0.75，固定音高为1.0；滑块仍支持0.6—1.0，并保留之前手动保存的语速。每次朗读会在控制台打印语音名称、语言、语速和音高，不打印学习文本。
+
 语音列表可能延迟出现，等待片刻后再次点击；首次播放必须由用户点击触发。无法出声时检查音量、音频输出和当前录音状态。`localService` 的含义见 [MDN语音本地服务属性](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesisVoice/localService)。
 
 ### 语音识别 ASR
@@ -154,7 +156,7 @@ python3 -m http.server 8000
 - 网页App：[打开大洋医疗外贸英语私教](https://azhiboss.github.io/dayang-english-coach/)
 - Pages发布源：`main`分支，根目录`/`。纯静态文件，无需构建工具或后端。
 
-修改课程或页面后，先提高`sw.js`中的`VERSION`（例如从`2026.11.3`改为`2026.11.4`），再在项目目录执行：
+修改课程或页面后，先提高`sw.js`中的`VERSION`（例如从`2026.11.4`改为`2026.11.5`），再在项目目录执行：
 
 ```bash
 git add .
