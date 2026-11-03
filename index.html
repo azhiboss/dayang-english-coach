@@ -53,6 +53,7 @@
             <label>学习模块<select id="module-filter"></select></label>
             <label>学习范围<select id="status-filter"><option value="all">全部内容</option><option value="new">还未掌握</option><option value="review">待复习</option><option value="mastered">已掌握</option><option value="favorite">我的收藏</option></select></label>
           </div>
+          <label class="sr-only" for="course-search">搜索词汇、同义表达或中文意思</label><input id="course-search" type="search" placeholder="搜索词汇、客户表达或中文意思…" autocomplete="off">
           <div class="learning-layout">
             <div>
               <article id="learning-card" class="learning-card">
@@ -65,7 +66,7 @@
                   <button id="toggle-meaning" class="button button-secondary" type="button" aria-expanded="false" aria-controls="item-meaning">显示释义</button>
                   <button id="practice-current" class="button button-link" type="button">去跟读</button>
                 </div>
-                <div id="item-meaning" class="meaning-block" hidden><p id="item-zh"></p><div id="example-block" class="example-block" hidden><span class="field-label">用在客户沟通中</span><p id="item-example" lang="en-US"></p><p id="item-example-zh"></p><button id="speak-example" class="button button-link" type="button">🔊 朗读例句</button></div></div>
+                <div id="item-meaning" class="meaning-block" hidden><p id="item-zh"></p><div id="example-block" class="example-block" hidden><span class="field-label">用在客户沟通中</span><p class="supporting-text">点击英文单词查释义与音标，长按500毫秒直接收藏。五句由浅入深。</p><div id="examples-list"></div><p hidden id="item-example" lang="en-US"></p><p hidden id="item-example-zh"></p><button hidden id="speak-example" class="button button-link" type="button">🔊 朗读例句</button></div></div>
               </article>
               <div id="learning-empty" class="empty-state" hidden><h3>这个范围暂时没有内容</h3><p>试试其他模块，或先把句子标记为待复习、收藏。</p><button id="reset-filters" class="button" type="button">查看全部内容</button></div>
               <div class="mark-actions" id="mark-actions">
@@ -119,11 +120,19 @@
           <div id="scenario-complete" class="empty-state" hidden><span class="completion-mark" aria-hidden="true">✓</span><h3>这一轮客户沟通，练完了。</h3><p id="scenario-complete-summary"></p><button id="repeat-scenario" class="button" type="button">再练一次</button><button id="change-scenario" class="button button-quiet" type="button">换一个情景</button></div>
         </section>
 
+        <section id="panel-vocabulary" class="view-panel" role="tabpanel" aria-labelledby="tab-vocabulary" hidden>
+          <div class="section-heading"><div><p class="section-caption">从看懂，到自然说出来</p><h2>把生词，练成熟词。</h2></div></div>
+          <p id="vocab-count" class="supporting-text">0 个生词</p>
+          <div class="filters"><label>搜索生词<input id="vocab-search" type="search" placeholder="输入英文或中文…" autocomplete="off"></label><label>复习范围<select id="vocab-filter"><option value="all">全部生词</option><option value="review">待复习</option><option value="mastered">已熟悉</option></select></label></div>
+          <p class="supporting-text">先看英文回忆意思，再展开释义与原句。单词保存在本机，也会包含在导出备份中。</p>
+          <div id="vocab-list"></div><button id="vocab-more" class="button button-secondary" type="button" hidden>显示更多生词</button>
+        </section>
+
         <section id="panel-data" class="view-panel" role="tabpanel" aria-labelledby="tab-data" hidden>
           <div class="section-heading"><div><p class="section-caption">你的学习记录，留在本机</p><h2>课程与学习资料。</h2></div></div>
           <p class="supporting-text">课程、进度、收藏与弱项保存在当前浏览器。换设备或清理网站数据前，请先导出备份。语音识别由浏览器或系统服务处理。</p>
-          <section class="data-section"><div class="subsection-heading"><h3>备份与外观</h3><label class="theme-label">外观<select id="theme-select"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div><div class="action-line"><button id="export-backup" class="button" type="button">导出备份 JSON</button><button id="export-course" class="button button-secondary" type="button">导出当前课程</button></div><p class="supporting-text">备份包含所有课程、练习进度、收藏、弱项与设置。没有账号，也不会自动同步。</p></section>
-          <section class="data-section"><h3>导入课程或备份</h3><label class="file-picker" for="import-file">选择 JSON 文件<input id="import-file" type="file" accept=".json,application/json"></label><details class="paste-details"><summary>或粘贴 JSON 内容</summary><label class="sr-only" for="import-text">课程或备份JSON</label><textarea id="import-text" rows="6" maxlength="52428800" placeholder='{"pack_name":"我的课程","version":"2026.11","modules":[…]}' spellcheck="false"></textarea><button id="preview-pasted" class="button button-secondary" type="button">检查粘贴内容</button></details><p class="supporting-text">课程最大5 MiB，完整备份最大50 MiB。先检查格式并预览，再确认写入。</p><div id="import-error" class="notice notice-error" role="alert" hidden></div><div id="import-preview" class="import-preview" hidden><h4 id="import-preview-title"></h4><p id="import-preview-description"></p><p id="import-preview-policy" class="supporting-text"></p><div class="action-line"><button id="confirm-import" class="button" type="button">确认导入</button><button id="cancel-import" class="button button-quiet" type="button">取消</button></div></div><p class="supporting-text resource-links"><a href="./demo.json" download="dayang-demo.json">下载示例课程</a><a href="./course.schema.json" download>查看课程 JSON Schema</a></p></section>
+          <section class="data-section"><div class="subsection-heading"><h3>备份与外观</h3><label class="theme-label">外观<select id="theme-select"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div><div class="action-line"><button id="export-backup" class="button" type="button">导出备份 JSON</button><button id="export-course" class="button button-secondary" type="button">导出当前课程</button></div><p class="supporting-text">备份包含所有课程、练习进度、收藏、弱项、生词本与设置。没有账号，也不会自动同步。</p></section>
+          <section class="data-section"><h3>导入课程或备份</h3><label class="file-picker" for="import-file">选择 JSON 文件<input id="import-file" type="file" accept=".json,application/json"></label><details class="paste-details"><summary>或粘贴 JSON 内容</summary><label class="sr-only" for="import-text">课程或备份JSON</label><textarea id="import-text" rows="6" maxlength="52428800" placeholder='{"pack_name":"我的课程","version":"2026.11","modules":[…]}' spellcheck="false"></textarea><button id="preview-pasted" class="button button-secondary" type="button">检查粘贴内容</button></details><p class="supporting-text">课程最大5 MiB，完整备份最大50 MiB。先检查格式并预览，再确认写入。</p><div id="import-error" class="notice notice-error" role="alert" hidden></div><div id="import-preview" class="import-preview" hidden><h4 id="import-preview-title"></h4><p id="import-preview-description"></p><p id="import-preview-policy" class="supporting-text"></p><div class="action-line"><button id="confirm-import" class="button" type="button">确认导入</button><button id="cancel-import" class="button button-quiet" type="button">取消</button></div></div><p class="supporting-text resource-links"><a href="./demo.json" download="dayang-demo.json">下载示例课程</a><a href="./courses_expanded.json" download>下载扩充词汇与例句</a><a href="./course.schema.json" download>查看课程 JSON Schema</a></p></section>
           <section class="data-section"><h3>已装入的课程</h3><div id="pack-list" class="pack-list"></div></section>
           <section id="weak-section" class="data-section"><div class="subsection-heading"><h3>弱项词库 <span id="weak-count" class="count-badge">0</span></h3></div><label class="sr-only" for="weak-search">搜索弱项词</label><input id="weak-search" type="search" placeholder="搜索需要多练一次的词…" autocomplete="off"><p id="weak-description" class="supporting-text">跟读中错读或漏读的目标词会自动记在这里。</p><div id="weak-list" class="weak-list"></div><button id="more-weak" class="button button-secondary" type="button" hidden>显示更多弱项</button></section>
           <p class="supporting-text app-footnote">Dayang English Coach · 2026.11<br><a href="./README.md">使用说明与已知限制</a></p>
@@ -134,12 +143,18 @@
         <button id="tab-learn" type="button" role="tab" aria-controls="panel-learn" aria-selected="true" data-view="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h7a3 3 0 0 1 2 1 3 3 0 0 1 2-1h7v16h-7a3 3 0 0 0-2 1 3 3 0 0 0-2-1H3zM12 5v16"/></svg><span>学习</span></button>
         <button id="tab-practice" type="button" role="tab" aria-controls="panel-practice" aria-selected="false" data-view="practice"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>跟读</span></button>
         <button id="tab-scenario" type="button" role="tab" aria-controls="panel-scenario" aria-selected="false" data-view="scenario"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v13H9l-5 5zM8 7h8M8 11h5"/></svg><span>对练</span></button>
+        <button id="tab-vocabulary" type="button" role="tab" aria-controls="panel-vocabulary" aria-selected="false" data-view="vocabulary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v19l-7-4-7 4zM9 7h6M9 11h6"/></svg><span>生词本</span></button>
         <button id="tab-data" type="button" role="tab" aria-controls="panel-data" aria-selected="false" data-view="data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5"/></svg><span>数据</span></button>
       </nav>
     </div>
   </div>
 
   <dialog id="help-dialog" class="help-dialog"><div class="subsection-heading"><h2>把私教装进 iPhone</h2><button id="close-help" class="button button-quiet" type="button">关闭</button></div><ol><li>用 Safari 打开这个 App 的 <strong>HTTPS 地址</strong>。</li><li>点击“分享”，选择“添加到主屏幕”；必要时先点“更多”。</li><li>如显示“作为网页 App 打开”，将其打开，再点“添加”。</li><li>联网完整打开一次，等待“离线资源已就绪”。之后可离线读课和复习。</li></ol><p>语音识别可能仍需要网络与系统支持。电脑的 localhost 可本地预览；iPhone 访问普通局域网 HTTP 地址时，离线缓存和麦克风功能会受限。</p><p>找不到本地英语语音时，可在 iPhone 的“辅助功能”语音相关设置中安装英语声音，再返回点击发音。</p><p><a href="./README.md">打开完整使用说明</a></p></dialog>
+  <section id="lookup-popover" class="lookup-popover" role="dialog" aria-modal="false" aria-labelledby="lookup-title" hidden>
+    <div class="subsection-heading"><h2 id="lookup-title" lang="en-US"></h2><button id="lookup-close" class="button button-quiet" type="button" aria-label="关闭查词窗口">关闭</button></div>
+    <p id="lookup-phonetic" class="phonetic"></p><p id="lookup-base" class="supporting-text"></p><p id="lookup-definition"></p>
+    <div class="action-line"><button id="lookup-speak" class="button" type="button">🔊 发音</button><button id="lookup-save" class="button button-secondary" type="button">⭐ 收藏到生词本</button></div>
+  </section>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <noscript><p class="notice notice-error">本应用需要JavaScript来显示课程与保存进度，请在浏览器中启用JavaScript。</p></noscript>
   <script type="module" src="./app.js"></script>

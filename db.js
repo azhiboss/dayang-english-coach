@@ -1,8 +1,8 @@
-import { LIMITS, validatePack, validateBackup, validateProgressRecord, validateWeakContext, validateWeakWordRecord, validateSettingRecord, normalizeWeakWord } from './import.js';
+import { LIMITS, validatePack, validateBackup, validateProgressRecord, validateWeakContext, validateWeakWordRecord, validateSettingRecord, normalizeWeakWord, normalizeVocabularyWord, validateVocabularyInput, validateVocabularyRecord } from './import.js';
 
 const DATABASE_NAME = 'dayang-english-coach';
-const DATABASE_VERSION = 1;
-const STORE_NAMES = ['packs', 'progress', 'weakWords', 'settings'];
+const DATABASE_VERSION = 2;
+const STORE_NAMES = ['packs', 'progress', 'weakWords', 'settings', 'vocabulary'];
 const SETTING_KEYS = new Set(['rate', 'voiceURI', 'theme', 'preferredPack']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 let connection = null;
@@ -47,6 +47,7 @@ async function init() {
         }
         if (!database.objectStoreNames.contains('weakWords')) database.createObjectStore('weakWords', { keyPath: 'word' });
         if (!database.objectStoreNames.contains('settings')) database.createObjectStore('settings', { keyPath: 'key' });
+        if (!database.objectStoreNames.contains('vocabulary')) database.createObjectStore('vocabulary', { keyPath: 'word' });
       } catch (error) {
         request.transaction.abort();
         rejectOnce(storageError(error, '初始化学习数据库'));
@@ -250,6 +251,57 @@ async function deleteWeakWord(word) {
   return transaction('weakWords', 'readwrite', (tx, done) => { tx.objectStore('weakWords').delete(normalized); done(true); });
 }
 
+async function listVocabulary() {
+  const records = await transaction('vocabulary', 'readonly', (tx, done, watch) => watch(tx.objectStore('vocabulary').getAll(), done));
+  return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.word.localeCompare(b.word));
+}
+
+async function saveVocabulary(raw) {
+  const input = validateVocabularyInput(raw);
+  return transaction('vocabulary', 'readwrite', (tx, done, watch) => {
+    const store = tx.objectStore('vocabulary');
+    watch(store.get(input.word), current => {
+      const write = () => {
+        const now = new Date().toISOString();
+        const record = validateVocabularyRecord({
+          word: input.word, zh: '', phonetic: '', context: '', mastered: false,
+          ...current, ...input, createdAt: current?.createdAt || now, updatedAt: now,
+        });
+        store.put(record);
+        done(record);
+      };
+      if (current) write();
+      else watch(store.count(), count => {
+        if (count >= LIMITS.vocabulary) throw new Error(`生词本最多保存${LIMITS.vocabulary}词，请先导出备份并整理生词本`);
+        write();
+      });
+    });
+  });
+}
+
+async function patchVocabulary(word, patch) {
+  const normalized = normalizeVocabularyWord(word);
+  checkPatch(patch);
+  if (Object.keys(patch).length !== 1 || typeof patch.mastered !== 'boolean') throw new Error('生词更新只支持mastered布尔字段');
+  return transaction('vocabulary', 'readwrite', (tx, done, watch) => {
+    const store = tx.objectStore('vocabulary');
+    watch(store.get(normalized), current => {
+      if (!current) throw new Error('这个词已不在生词本中，请刷新后重试');
+      const record = validateVocabularyRecord({ ...current, mastered: patch.mastered, updatedAt: new Date().toISOString() });
+      store.put(record);
+      done(record);
+    });
+  });
+}
+
+async function deleteVocabulary(word) {
+  const normalized = normalizeVocabularyWord(word);
+  return transaction('vocabulary', 'readwrite', (tx, done) => {
+    tx.objectStore('vocabulary').delete(normalized);
+    done(true);
+  });
+}
+
 async function getSetting(key, fallback) {
   assertSettingKey(key);
   return transaction('settings', 'readonly', (tx, done, watch) => watch(tx.objectStore('settings').get(key), record => done(record ? record.value : fallback)));
@@ -266,7 +318,7 @@ async function setSetting(key, value) {
 
 async function exportBackup() {
   const backup = await transaction(STORE_NAMES, 'readonly', (tx, done, watch) => {
-    const result = { format: 'dayang-english-coach-backup', format_version: 1, exported_at: new Date().toISOString() };
+    const result = { format: 'dayang-english-coach-backup', format_version: 2, exported_at: new Date().toISOString() };
     let remaining = STORE_NAMES.length;
     for (const name of STORE_NAMES) watch(tx.objectStore(name).getAll(), records => { result[name] = records; if (--remaining === 0) done(result); });
   });
@@ -282,13 +334,15 @@ async function restoreBackup(raw) {
   return transaction(STORE_NAMES, 'readwrite', (tx, done, watch) => {
     let currentProgress;
     let currentWords;
-    let remaining = 2;
+    let currentVocabulary;
+    let remaining = 3;
     const merge = () => {
       if (--remaining !== 0) return;
       const packStore = tx.objectStore('packs');
       const progressStore = tx.objectStore('progress');
       const wordStore = tx.objectStore('weakWords');
       const settingStore = tx.objectStore('settings');
+      const vocabularyStore = tx.objectStore('vocabulary');
       for (const pack of backup.packs) packStore.put(pack);
       const existingProgress = new Map();
       for (const record of currentProgress) {
@@ -314,12 +368,20 @@ async function restoreBackup(raw) {
         const incomingNewer = record.lastSeen >= current.lastSeen;
         wordStore.put({ word: record.word, count: Math.max(record.count, current.count), lastSeen: incomingNewer ? record.lastSeen : current.lastSeen, contexts: incomingNewer ? mergeContexts(record.contexts, current.contexts) : mergeContexts(current.contexts, record.contexts) });
       }
+      const existingVocabulary = new Map(currentVocabulary.map(record => [record.word, record]));
+      const vocabularyCount = new Set([...existingVocabulary.keys(), ...backup.vocabulary.map(record => record.word)]).size;
+      if (vocabularyCount > LIMITS.vocabulary) throw new Error(`合并后的生词本超过${LIMITS.vocabulary}词上限`);
+      for (const record of backup.vocabulary) {
+        const current = existingVocabulary.get(record.word);
+        if (!current || record.updatedAt >= current.updatedAt) vocabularyStore.put(record);
+      }
       for (const record of backup.settings) settingStore.put(record);
-      done({ packs: backup.packs.length, progress: backup.progress.length, weakWords: backup.weakWords.length, settings: backup.settings.length });
+      done({ packs: backup.packs.length, progress: backup.progress.length, weakWords: backup.weakWords.length, settings: backup.settings.length, vocabulary: backup.vocabulary.length });
     };
     watch(tx.objectStore('progress').getAll(), records => { currentProgress = records; merge(); });
     watch(tx.objectStore('weakWords').getAll(), records => { currentWords = records; merge(); });
+    watch(tx.objectStore('vocabulary').getAll(), records => { currentVocabulary = records; merge(); });
   });
 }
 
-export const DB = Object.freeze({ init, listPacks, getPack, putPack, deletePack, listProgress, getProgress, saveProgress, listWeakWords, addWeakWords, deleteWeakWord, getSetting, setSetting, exportBackup, restoreBackup });
+export const DB = Object.freeze({ init, listPacks, getPack, putPack, deletePack, listProgress, getProgress, saveProgress, listWeakWords, addWeakWords, deleteWeakWord, listVocabulary, saveVocabulary, patchVocabulary, deleteVocabulary, getSetting, setSetting, exportBackup, restoreBackup });

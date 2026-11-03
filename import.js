@@ -1,5 +1,5 @@
 // Course and backup validation is deliberately independent of storage and the UI.
-export const LIMITS = Object.freeze({ fileBytes: 5 * 1024 * 1024, backupBytes: 50 * 1024 * 1024, modules: 100, itemsPerModule: 1000, itemsPerPack: 10000, packs: 100, progress: 100000, weakWords: 10000 });
+export const LIMITS = Object.freeze({ fileBytes: 5 * 1024 * 1024, backupBytes: 50 * 1024 * 1024, modules: 100, itemsPerModule: 1000, itemsPerPack: 10000, packs: 100, progress: 100000, weakWords: 10000, vocabulary: 10000 });
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const SCENES = new Set(['exhibition', 'negotiation', 'complaint']);
@@ -114,7 +114,7 @@ export function validatePack(raw) {
     if (totalItems > LIMITS.itemsPerPack) fail('课程.modules', `全包最多${LIMITS.itemsPerPack}条学习内容`);
     items.forEach((item, ii) => {
       const itemPath = `${path}.items[${ii}]`;
-      keys(item, ['id', 'en', 'zh', 'phonetic', 'example', 'example_zh', 'role', 'keywords', 'reference'], itemPath);
+      keys(item, ['id', 'en', 'zh', 'phonetic', 'example', 'example_zh', 'examples', 'role', 'keywords', 'reference'], itemPath);
       if (own(item, 'id')) {
         const value = id(item.id, `${itemPath}.id`);
         if (reservedItems.has(value)) fail(`${itemPath}.id`, '同一课程包内的学习项ID重复');
@@ -144,7 +144,9 @@ export function validatePack(raw) {
         result.keywords = array(item.keywords, `${itemPath}.keywords`, 30).map((word, wi) => text(word, `${itemPath}.keywords[${wi}]`, 80, { multiline: false }));
         if (new Set(result.keywords).size !== result.keywords.length) fail(`${itemPath}.keywords`, '关键词不能重复');
       }
+      // Optional example expansion must not change an existing implicit item ID.
       const itemId = own(item, 'id') ? item.id : allocateId('item', JSON.stringify(result), reservedItems, allocatedItems);
+      if (own(item, 'examples')) result.examples = validateExamples(item.examples, `${itemPath}.examples`);
       allocatedItems.add(itemId);
       return { id: itemId, ...result };
     });
@@ -155,6 +157,75 @@ export function validatePack(raw) {
   const result = { id: packId, pack_name: name, version, modules };
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > LIMITS.fileBytes) fail('课程', '补齐稳定ID后的课程包不能超过5 MiB');
   return result;
+}
+
+function validateExamples(raw, path, minimum = 1) {
+  return array(raw, path, 30, minimum).map((entry, index) => {
+    const entryPath = `${path}[${index}]`;
+    keys(entry, ['en', 'zh'], entryPath);
+    return { en: text(entry.en, `${entryPath}.en`, 4000), zh: text(entry.zh, `${entryPath}.zh`, 4000) };
+  });
+}
+
+export function expandedToPack(raw) {
+  safeTree(raw, '扩充词库');
+  const seen = new Set();
+  const items = array(raw, '扩充词库', LIMITS.itemsPerModule, 1).map((entry, index) => {
+    const path = `扩充词库[${index}]`;
+    keys(entry, ['word', 'zh', 'phonetic', 'examples'], path);
+    const word = text(entry.word, `${path}.word`, 120, { multiline: false });
+    const normalized = word.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seen.has(normalized)) fail(`${path}.word`, '词条不能重复（不区分大小写）');
+    seen.add(normalized);
+    const item = {
+      id: `expanded-word-${stableHash(normalized)}`,
+      en: word,
+      zh: text(entry.zh, `${path}.zh`, 4000),
+      examples: validateExamples(entry.examples, `${path}.examples`, 5),
+    };
+    if (own(entry, 'phonetic')) item.phonetic = text(entry.phonetic, `${path}.phonetic`, 500);
+    return item;
+  });
+  return validatePack({
+    id: 'dayang-expanded-v1',
+    pack_name: '行业词汇·五句进阶',
+    version: '2026.11.6',
+    modules: [{ id: 'expanded-industry-vocabulary', module: '全部行业词汇', items }],
+  });
+}
+
+export function normalizeVocabularyWord(value, path = '生词') {
+  if (typeof value !== 'string') fail(path, '必须是字符串');
+  return normalizeWeakWord(value.normalize('NFKC').replace(/[’‘]/g, "'"), path);
+}
+
+export function validateVocabularyInput(raw, path = '生词收藏') {
+  safeTree(raw, path);
+  keys(raw, ['word', 'zh', 'phonetic', 'context', 'mastered'], path);
+  const result = { word: normalizeVocabularyWord(raw.word, `${path}.word`) };
+  for (const [field, max] of [['zh', 4000], ['phonetic', 500], ['context', 4000]]) {
+    if (own(raw, field)) result[field] = text(raw[field], `${path}.${field}`, max, { empty: true });
+  }
+  if (own(raw, 'mastered')) {
+    if (typeof raw.mastered !== 'boolean') fail(`${path}.mastered`, '必须是布尔值');
+    result.mastered = raw.mastered;
+  }
+  return result;
+}
+
+export function validateVocabularyRecord(raw, path = '生词记录') {
+  safeTree(raw, path);
+  keys(raw, ['word', 'zh', 'phonetic', 'context', 'mastered', 'createdAt', 'updatedAt'], path);
+  if (typeof raw.mastered !== 'boolean') fail(`${path}.mastered`, '必须是布尔值');
+  return {
+    word: normalizeVocabularyWord(raw.word, `${path}.word`),
+    zh: text(raw.zh, `${path}.zh`, 4000, { empty: true }),
+    phonetic: text(raw.phonetic, `${path}.phonetic`, 500, { empty: true }),
+    context: text(raw.context, `${path}.context`, 4000, { empty: true }),
+    mastered: raw.mastered,
+    createdAt: timestamp(raw.createdAt, `${path}.createdAt`),
+    updatedAt: timestamp(raw.updatedAt, `${path}.updatedAt`),
+  };
 }
 
 // These record validators are shared by IndexedDB writes and backup validation.
@@ -210,8 +281,9 @@ export function validateSettingRecord(raw, path = '设置') {
 
 export function validateBackup(raw) {
   safeTree(raw, '备份');
-  keys(raw, ['format', 'format_version', 'exported_at', 'packs', 'progress', 'weakWords', 'settings'], '备份');
-  if (raw.format !== 'dayang-english-coach-backup' || raw.format_version !== 1) fail('备份', '不支持此备份格式或版本');
+  object(raw, '备份');
+  if (raw.format !== 'dayang-english-coach-backup' || ![1, 2].includes(raw.format_version)) fail('备份', '不支持此备份格式或版本');
+  keys(raw, ['format', 'format_version', 'exported_at', 'packs', 'progress', 'weakWords', 'settings', ...(raw.format_version === 2 ? ['vocabulary'] : [])], '备份');
   const exportedAt = timestamp(raw.exported_at, '备份.exported_at');
   const packs = array(raw.packs, '备份.packs', LIMITS.packs).map((entry, index) => {
     try { return validatePack(entry); } catch (error) { fail(`备份.packs[${index}]`, error.message); }
@@ -254,7 +326,15 @@ export function validateBackup(raw) {
     if (record.key === 'preferredPack' && record.value && !packMap.has(record.value)) fail(`${path}.value`, '首选课程包不在备份中');
     return record;
   });
-  const result = { format: 'dayang-english-coach-backup', format_version: 1, exported_at: exportedAt, packs, progress, weakWords, settings };
+  const vocabularyKeys = new Set();
+  const vocabulary = raw.format_version === 1 ? [] : array(raw.vocabulary, '备份.vocabulary', LIMITS.vocabulary).map((entry, index) => {
+    const path = `备份.vocabulary[${index}]`;
+    const record = validateVocabularyRecord(entry, path);
+    if (vocabularyKeys.has(record.word)) fail(`${path}.word`, '生词不能重复（不区分大小写）');
+    vocabularyKeys.add(record.word);
+    return record;
+  });
+  const result = { format: 'dayang-english-coach-backup', format_version: 2, exported_at: exportedAt, packs, progress, weakWords, settings, vocabulary };
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > LIMITS.backupBytes) fail('备份', '规范化后的完整备份不能超过50 MiB');
   return result;
 }
@@ -267,7 +347,7 @@ export function parseImport(value) {
   try { raw = JSON.parse(value.replace(/^\uFEFF/, '')); } catch (error) { fail('导入文件', `JSON格式错误：${String(error.message).slice(0, 180)}`); }
   if (raw && typeof raw === 'object' && own(raw, 'format')) return { kind: 'backup', backup: validateBackup(raw) };
   if (bytes > LIMITS.fileBytes) fail('导入文件', '课程包不能超过5 MiB；只有指定格式的完整备份可使用50 MiB上限');
-  return { kind: 'course', pack: validatePack(raw) };
+  return { kind: 'course', pack: Array.isArray(raw) ? expandedToPack(raw) : validatePack(raw) };
 }
 
 export async function readFileText(file) {

@@ -913,7 +913,7 @@ textarea::placeholder,input::placeholder {
   right:0;
   z-index:20;
   display:grid;
-  grid-template-columns:repeat(4,1fr);
+  grid-template-columns:repeat(5,1fr);
   padding:8px max(16px,env(safe-area-inset-left,0px)) calc(8px + env(safe-area-inset-bottom,0px));
   background:var(--nav);
   border-top:1px solid var(--rule)
@@ -1156,3 +1156,25 @@ html[data-theme=dark] .toast {
     color:black
   }
 }
+
+/* Offline example lookup and the personal vocabulary page. */
+#course-search { margin-bottom:20px; }
+.expanded-example { border-top:1px solid var(--rule);padding:18px 0 4px; }
+.example-level { color:var(--brand-dark);font-size:.8rem;font-weight:650;margin-bottom:6px; }
+.lookup-sentence { line-height:1.8;font-size:1rem;margin-bottom:10px; }
+.lookup-word { display:inline-block;font:inherit;line-height:1.5;color:inherit;background:transparent;border:0;border-radius:4px;min-height:44px;min-width:24px;padding:5px 2px;vertical-align:baseline;cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:pan-y pinch-zoom; }
+.lookup-word:hover,.lookup-word:focus-visible { background:var(--soft);color:var(--brand-dark);text-decoration:underline dotted;text-underline-offset:4px; }
+.example-translation { color:var(--muted);font-size:.91rem;line-height:1.7; }
+.lookup-popover { position:fixed;z-index:150;width:min(350px,calc(100vw - 24px));max-height:70dvh;overflow:auto;padding:18px;background:var(--paper);color:var(--ink);border:1px solid var(--rule);border-radius:15px;box-shadow:0 12px 40px rgba(0,0,0,.24);overscroll-behavior:contain; }
+.lookup-popover h2 { font-size:1.25rem;overflow-wrap:anywhere; }
+.lookup-popover .subsection-heading { gap:10px;align-items:center; }
+.lookup-popover .phonetic { margin:4px 0 10px; }
+#lookup-definition { white-space:pre-line;max-height:24vh;overflow:auto; }
+.lookup-popover .action-line { margin-bottom:0; }
+.vocab-card { padding:22px;background:var(--paper);border:1px solid var(--rule);border-radius:14px;margin-bottom:16px; }
+.vocab-card h3 { margin-bottom:6px;font-size:1.35rem; }
+.vocab-card .phonetic { font-size:1rem; }
+.vocab-meaning summary { min-height:44px;padding:10px 0;color:var(--brand-dark);font-weight:600; }
+.vocab-meaning>p { white-space:pre-line; }
+.vocab-card .button[aria-pressed=true] { background:var(--success-bg);color:var(--success);border-color:var(--success); }
+@media(min-width:760px) { .bottom-nav { width:680px; } #panel-vocabulary { max-width:800px;margin-inline:auto; } }
