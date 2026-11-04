@@ -279,11 +279,98 @@ export function validateSettingRecord(raw, path = '设置') {
   return { key: raw.key, value };
 }
 
+function calendarDate(value, path) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail(path, '必须是YYYY-MM-DD格式的日期');
+  const date = new Date(`${value}T12:00:00.000Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) fail(path, '日期不存在');
+  return value;
+}
+
+function plannerReference(value, path, sentence = false) {
+  if (typeof value !== 'string' || value.length > 500) fail(path, '学习项引用须为不超过500字符的字符串');
+  const pieces = value.split('/');
+  if (pieces.length !== 2 && !(sentence && pieces.length === 3 && /^example-\d{1,3}(?:-[a-f0-9]{1,8})?$/.test(pieces[2]))) fail(path, '学习项引用格式不正确');
+  id(pieces[0], `${path}.packId`);
+  id(pieces[1], `${path}.itemId`);
+  return value;
+}
+
+function plannerReferences(raw, path, max, sentence = false) {
+  const values = array(raw, path, max).map((value, index) => plannerReference(value, `${path}[${index}]`, sentence));
+  if (new Set(values).size !== values.length) fail(path, '学习项引用不能重复');
+  return values;
+}
+
+export function validatePlannerState(raw, path = '学习计划') {
+  safeTree(raw, path);
+  keys(raw, ['schemaVersion', 'startedOn', 'dailyNew', 'learned', 'days', 'updatedAt'], path);
+  if (raw.schemaVersion !== 1) fail(`${path}.schemaVersion`, '不支持此学习计划版本');
+  if (![5, 10, 15, 20, 30].includes(raw.dailyNew)) fail(`${path}.dailyNew`, '每日新学量只支持5、10、15、20或30');
+  const startedOn = calendarDate(raw.startedOn, `${path}.startedOn`);
+  const updatedAt = timestamp(raw.updatedAt, `${path}.updatedAt`);
+  object(raw.learned, `${path}.learned`);
+  object(raw.days, `${path}.days`);
+  const learnedEntries = Object.entries(raw.learned);
+  const dayEntries = Object.entries(raw.days);
+  if (learnedEntries.length > LIMITS.progress) fail(`${path}.learned`, `最多保存${LIMITS.progress}项学习记录`);
+  if (dayEntries.length > 36600) fail(`${path}.days`, '每日记录不能超过36600天');
+  const learned = {};
+  const intervals = [1, 2, 4, 7, 15, 30];
+  for (const [ref, entry] of learnedEntries) {
+    const itemPath = `${path}.learned[${ref}]`;
+    plannerReference(ref, itemPath);
+    keys(entry, ['enKey', 'learnedOn', 'lastReviewedOn', 'nextDue', 'completedIntervals', 'mastered', 'source'], itemPath);
+    if (typeof entry.mastered !== 'boolean') fail(`${itemPath}.mastered`, '必须是布尔值');
+    if (!['planner', 'legacy'].includes(entry.source)) fail(`${itemPath}.source`, '只支持planner或legacy来源');
+    const completedIntervals = array(entry.completedIntervals, `${itemPath}.completedIntervals`, 6).map((value, index) => {
+      if (!intervals.includes(value) || (index && entry.completedIntervals[index - 1] >= value)) fail(`${itemPath}.completedIntervals`, '复习间隔须为1、2、4、7、15、30中的唯一升序值');
+      return value;
+    });
+    learned[ref] = {
+      enKey: text(entry.enKey, `${itemPath}.enKey`, 400, { multiline: false }),
+      learnedOn: calendarDate(entry.learnedOn, `${itemPath}.learnedOn`),
+      lastReviewedOn: entry.lastReviewedOn === null ? null : calendarDate(entry.lastReviewedOn, `${itemPath}.lastReviewedOn`),
+      nextDue: entry.nextDue === null ? null : calendarDate(entry.nextDue, `${itemPath}.nextDue`),
+      completedIntervals, mastered: entry.mastered, source: entry.source,
+    };
+  }
+  const days = {};
+  for (const [date, entry] of dayEntries) {
+    const dayPath = `${path}.days[${date}]`;
+    calendarDate(date, `${dayPath}.key`);
+    keys(entry, ['date', 'newKeys', 'reviewKeys', 'sentenceKeys', 'scenarioKey', 'doneNew', 'doneReviews', 'doneSentences', 'scenarioDone', 'seconds', 'celebrated', 'completedAt'], dayPath);
+    if (entry.date !== date) fail(`${dayPath}.date`, '日期必须与记录键一致');
+    const newKeys = plannerReferences(entry.newKeys, `${dayPath}.newKeys`, 30);
+    const reviewKeys = plannerReferences(entry.reviewKeys, `${dayPath}.reviewKeys`, 75);
+    const sentenceKeys = plannerReferences(entry.sentenceKeys, `${dayPath}.sentenceKeys`, 5, true);
+    const completed = (name, scheduled, max, sentence = false) => {
+      const values = plannerReferences(entry[name], `${dayPath}.${name}`, max, sentence);
+      if (values.some(value => !scheduled.includes(value))) fail(`${dayPath}.${name}`, '完成记录必须属于当日安排的学习项');
+      return values;
+    };
+    for (const field of ['scenarioDone', 'celebrated']) if (typeof entry[field] !== 'boolean') fail(`${dayPath}.${field}`, '必须是布尔值');
+    days[date] = {
+      date, newKeys, reviewKeys, sentenceKeys,
+      scenarioKey: entry.scenarioKey === null ? null : plannerReference(entry.scenarioKey, `${dayPath}.scenarioKey`),
+      doneNew: completed('doneNew', newKeys, 30),
+      doneReviews: completed('doneReviews', reviewKeys, 75),
+      doneSentences: completed('doneSentences', sentenceKeys, 5, true),
+      scenarioDone: entry.scenarioDone,
+      seconds: integer(entry.seconds, `${dayPath}.seconds`, 0, 86400),
+      celebrated: entry.celebrated,
+      completedAt: entry.completedAt === null ? null : timestamp(entry.completedAt, `${dayPath}.completedAt`),
+    };
+  }
+  const state = { schemaVersion: 1, startedOn, dailyNew: raw.dailyNew, learned, days, updatedAt };
+  if (new TextEncoder().encode(JSON.stringify(state)).byteLength > LIMITS.fileBytes) fail(path, '学习计划记录不能超过5 MiB，请先导出备份后重置计划');
+  return state;
+}
+
 export function validateBackup(raw) {
   safeTree(raw, '备份');
   object(raw, '备份');
-  if (raw.format !== 'dayang-english-coach-backup' || ![1, 2].includes(raw.format_version)) fail('备份', '不支持此备份格式或版本');
-  keys(raw, ['format', 'format_version', 'exported_at', 'packs', 'progress', 'weakWords', 'settings', ...(raw.format_version === 2 ? ['vocabulary'] : [])], '备份');
+  if (raw.format !== 'dayang-english-coach-backup' || ![1, 2, 3].includes(raw.format_version)) fail('备份', '不支持此备份格式或版本');
+  keys(raw, ['format', 'format_version', 'exported_at', 'packs', 'progress', 'weakWords', 'settings', ...(raw.format_version >= 2 ? ['vocabulary'] : []), ...(raw.format_version >= 3 ? ['planner'] : [])], '备份');
   const exportedAt = timestamp(raw.exported_at, '备份.exported_at');
   const packs = array(raw.packs, '备份.packs', LIMITS.packs).map((entry, index) => {
     try { return validatePack(entry); } catch (error) { fail(`备份.packs[${index}]`, error.message); }
@@ -334,7 +421,10 @@ export function validateBackup(raw) {
     vocabularyKeys.add(record.word);
     return record;
   });
-  const result = { format: 'dayang-english-coach-backup', format_version: 2, exported_at: exportedAt, packs, progress, weakWords, settings, vocabulary };
+  const result = { format: 'dayang-english-coach-backup', format_version: 3, exported_at: exportedAt, packs, progress, weakWords, settings, vocabulary };
+  // Absence means an older backup: preserve the device's current plan on restore.
+  // Explicit null in a v3 backup represents an empty plan snapshot.
+  if (raw.format_version >= 3 && own(raw, 'planner')) result.planner = raw.planner === null ? null : validatePlannerState(raw.planner, '备份.planner');
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > LIMITS.backupBytes) fail('备份', '规范化后的完整备份不能超过50 MiB');
   return result;
 }

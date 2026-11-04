@@ -1,8 +1,8 @@
-import { LIMITS, validatePack, validateBackup, validateProgressRecord, validateWeakContext, validateWeakWordRecord, validateSettingRecord, normalizeWeakWord, normalizeVocabularyWord, validateVocabularyInput, validateVocabularyRecord } from './import.js';
+import { LIMITS, validatePack, validateBackup, validateProgressRecord, validateWeakContext, validateWeakWordRecord, validateSettingRecord, normalizeWeakWord, normalizeVocabularyWord, validateVocabularyInput, validateVocabularyRecord, validatePlannerState } from './import.js';
 
 const DATABASE_NAME = 'dayang-english-coach';
-const DATABASE_VERSION = 2;
-const STORE_NAMES = ['packs', 'progress', 'weakWords', 'settings', 'vocabulary'];
+const DATABASE_VERSION = 3;
+const STORE_NAMES = ['packs', 'progress', 'weakWords', 'settings', 'vocabulary', 'planner'];
 const SETTING_KEYS = new Set(['rate', 'voiceURI', 'theme', 'preferredPack']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 let connection = null;
@@ -48,6 +48,7 @@ async function init() {
         if (!database.objectStoreNames.contains('weakWords')) database.createObjectStore('weakWords', { keyPath: 'word' });
         if (!database.objectStoreNames.contains('settings')) database.createObjectStore('settings', { keyPath: 'key' });
         if (!database.objectStoreNames.contains('vocabulary')) database.createObjectStore('vocabulary', { keyPath: 'word' });
+        if (!database.objectStoreNames.contains('planner')) database.createObjectStore('planner', { keyPath: 'id' });
       } catch (error) {
         request.transaction.abort();
         rejectOnce(storageError(error, '初始化学习数据库'));
@@ -302,6 +303,37 @@ async function deleteVocabulary(word) {
   });
 }
 
+async function loadPlanner() {
+  return transaction('planner', 'readonly', (tx, done, watch) => {
+    watch(tx.objectStore('planner').get('current'), record => done(record ? validatePlannerState(record.data) : null));
+  });
+}
+
+async function updatePlanner(updater) {
+  if (typeof updater !== 'function') throw new Error('学习计划更新必须提供同步函数');
+  return transaction('planner', 'readwrite', (tx, done, watch) => {
+    const store = tx.objectStore('planner');
+    watch(store.get('current'), record => {
+      const current = record ? validatePlannerState(record.data) : null;
+      const next = updater(current);
+      if (next && typeof next.then === 'function') throw new Error('学习计划更新函数不能是异步函数');
+      const state = validatePlannerState(next);
+      store.put({ id: 'current', data: state });
+      done(state);
+    });
+  });
+}
+
+async function replacePlanner(raw) {
+  const state = raw === null ? null : validatePlannerState(raw);
+  return transaction('planner', 'readwrite', (tx, done) => {
+    const store = tx.objectStore('planner');
+    if (state === null) store.delete('current');
+    else store.put({ id: 'current', data: state });
+    done(state);
+  });
+}
+
 async function getSetting(key, fallback) {
   assertSettingKey(key);
   return transaction('settings', 'readonly', (tx, done, watch) => watch(tx.objectStore('settings').get(key), record => done(record ? record.value : fallback)));
@@ -318,9 +350,12 @@ async function setSetting(key, value) {
 
 async function exportBackup() {
   const backup = await transaction(STORE_NAMES, 'readonly', (tx, done, watch) => {
-    const result = { format: 'dayang-english-coach-backup', format_version: 2, exported_at: new Date().toISOString() };
+    const result = { format: 'dayang-english-coach-backup', format_version: 3, exported_at: new Date().toISOString() };
     let remaining = STORE_NAMES.length;
-    for (const name of STORE_NAMES) watch(tx.objectStore(name).getAll(), records => { result[name] = records; if (--remaining === 0) done(result); });
+    for (const name of STORE_NAMES) watch(tx.objectStore(name).getAll(), records => {
+      result[name] = name === 'planner' ? (records.find(record => record.id === 'current')?.data ?? null) : records;
+      if (--remaining === 0) done(result);
+    });
   });
   const result = validateBackup(backup);
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > LIMITS.backupBytes) throw new Error('完整备份超过50 MiB可恢复上限，已停止导出，避免生成无法还原的单文件备份');
@@ -376,7 +411,12 @@ async function restoreBackup(raw) {
         if (!current || record.updatedAt >= current.updatedAt) vocabularyStore.put(record);
       }
       for (const record of backup.settings) settingStore.put(record);
-      done({ packs: backup.packs.length, progress: backup.progress.length, weakWords: backup.weakWords.length, settings: backup.settings.length, vocabulary: backup.vocabulary.length });
+      if (Object.prototype.hasOwnProperty.call(backup, 'planner')) {
+        const plannerStore = tx.objectStore('planner');
+        if (backup.planner === null) plannerStore.delete('current');
+        else plannerStore.put({ id: 'current', data: backup.planner });
+      }
+      done({ packs: backup.packs.length, progress: backup.progress.length, weakWords: backup.weakWords.length, settings: backup.settings.length, vocabulary: backup.vocabulary.length, planner: Object.prototype.hasOwnProperty.call(backup, 'planner') });
     };
     watch(tx.objectStore('progress').getAll(), records => { currentProgress = records; merge(); });
     watch(tx.objectStore('weakWords').getAll(), records => { currentWords = records; merge(); });
@@ -384,4 +424,4 @@ async function restoreBackup(raw) {
   });
 }
 
-export const DB = Object.freeze({ init, listPacks, getPack, putPack, deletePack, listProgress, getProgress, saveProgress, listWeakWords, addWeakWords, deleteWeakWord, listVocabulary, saveVocabulary, patchVocabulary, deleteVocabulary, getSetting, setSetting, exportBackup, restoreBackup });
+export const DB = Object.freeze({ init, listPacks, getPack, putPack, deletePack, listProgress, getProgress, saveProgress, listWeakWords, addWeakWords, deleteWeakWord, listVocabulary, saveVocabulary, patchVocabulary, deleteVocabulary, loadPlanner, updatePlanner, replacePlanner, getSetting, setSetting, exportBackup, restoreBackup });

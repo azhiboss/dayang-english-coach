@@ -34,7 +34,7 @@
     </section>
 
     <div id="app-content" hidden>
-      <section class="course-bar" aria-label="当前课程与学习进度">
+      <section class="course-bar" aria-label="当前课程与学习进度" hidden>
         <label class="field-label" for="pack-select">当前课程包</label>
         <select id="pack-select" aria-describedby="pack-description"></select>
         <div class="course-meta"><span id="pack-description"></span><span id="offline-status" class="connection-status">正在准备离线资源</span></div>
@@ -47,8 +47,50 @@
       </section>
 
       <main id="main-content" tabindex="-1">
-        <section id="panel-learn" class="view-panel" role="tabpanel" aria-labelledby="tab-learn">
+        <section id="panel-today" class="view-panel" role="tabpanel" aria-labelledby="tab-today">
+          <div class="section-heading today-heading"><div><p class="section-caption" id="planner-date">正在准备今天的计划</p><h2>今天，按计划练。</h2></div><span id="planner-streak" class="streak-badge">连续 0 天</span></div>
+          <p id="planner-error" class="notice notice-error" role="alert" hidden></p>
+          <article class="today-card" aria-labelledby="today-title">
+            <div class="subsection-heading"><h3 id="today-title">今日任务</h3><span id="planner-percent" class="today-percent">0%</span></div>
+            <progress id="planner-progress" max="100" value="0" aria-label="今日任务完成进度">0%</progress>
+            <p id="planner-progress-text" class="supporting-text" aria-live="polite">正在读取学习记录…</p>
+            <div class="today-metrics">
+              <div><span>新学词汇</span><strong id="planner-new-count">—</strong><small id="planner-new-detail">按每日学习量安排</small></div>
+              <div><span>间隔复习</span><strong id="planner-review-count">—</strong><small id="planner-review-detail">按学完日期自动安排</small></div>
+              <div><span>短句跟读</span><strong id="planner-sentence-count">—</strong><small>每天四句，练习表达</small></div>
+              <div><span>情景模拟</span><strong id="planner-scene-count">—</strong><small id="planner-scene-detail">每周二、四、六</small></div>
+            </div>
+            <button id="start-today" class="button today-start" type="button" disabled>开始今日学习 <span aria-hidden="true">→</span></button>
+            <p id="planner-carry-note" class="supporting-text planner-note"></p>
+          </article>
+          <p id="planner-offline-status" class="supporting-text connection-status">正在准备离线资源</p>
+
+          <section id="planner-celebration" class="planner-celebration" aria-live="polite" hidden><div class="celebration-confetti" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="celebration-check" aria-hidden="true">✓</span><h3>今天的任务，完成了！</h3><p id="planner-encouragement">每一次认真练习，都在为下一次客户沟通做准备。</p><button id="planner-free-study" class="button button-secondary" type="button">继续自由学习</button></section>
+
+          <article id="today-session" class="today-session" aria-labelledby="today-session-title" hidden>
+            <div class="subsection-heading"><span id="today-session-type" class="module-label">今日练习</span><button id="close-today-session" class="button button-quiet" type="button">收起</button></div>
+            <h3 id="today-session-title" lang="en-US"></h3><p id="today-session-source" class="supporting-text"></p>
+            <details id="today-session-meaning"><summary>显示释义与提示</summary><p id="today-session-zh"></p></details>
+            <div class="action-line"><button id="today-session-speak" class="button button-secondary" type="button">🔊 发音</button><button id="today-session-open" class="button button-secondary" type="button">展开学习</button><button id="today-session-complete" class="button" type="button">✅ 完成，下一项</button></div>
+            <p class="supporting-text">先听、回忆，再开口说一遍，完成后再打勾。</p>
+          </article>
+
+          <section class="today-agenda" aria-label="今日任务明细">
+            <div class="subsection-heading"><h3>按这份清单练习</h3><button id="refresh-today" class="button button-quiet" type="button">刷新计划</button></div>
+            <details id="agenda-review" class="agenda-group"><summary><span>先复习，记得更牢</span><span id="agenda-review-count" class="count-badge">0</span></summary><p id="agenda-review-note" class="supporting-text"></p><div id="agenda-review-list"></div></details>
+            <details id="agenda-new" class="agenda-group"><summary><span>今天的新词与词组</span><span id="agenda-new-count" class="count-badge">0</span></summary><div id="agenda-new-list"></div></details>
+            <details id="agenda-sentence" class="agenda-group"><summary><span>把短句说顺</span><span id="agenda-sentence-count" class="count-badge">0</span></summary><div id="agenda-sentence-list"></div></details>
+            <details id="agenda-scenario" class="agenda-group"><summary><span>和客户练一轮</span><span id="agenda-scenario-count" class="count-badge">0</span></summary><p id="agenda-scenario-note" class="supporting-text"></p><div id="agenda-scenario-list"></div></details>
+          </section>
+
+          <section class="planner-statistics" aria-labelledby="planner-statistics-title"><h3 id="planner-statistics-title">你的学习积累</h3><dl class="planner-stat-grid"><div><dt>累计学习天数</dt><dd id="planner-study-days">0 天</dd></div><div><dt>累计掌握词汇</dt><dd id="planner-mastered">0 个</dd></div><div><dt>本周学习时长</dt><dd id="planner-week-time">0 分钟</dd></div><div><dt>已学新词</dt><dd id="planner-learned">0 个</dd></div></dl><div class="planner-estimate"><span>预计完成词汇课程及间隔复习</span><strong id="planner-finish-date">计算中</strong><p id="planner-estimate-note" class="supporting-text"></p></div><p class="supporting-text">掌握数包含计划开始前已标记掌握的词，以及完成全部六次间隔复习的词。前台学习时计时，闲置90秒或切到后台会暂停。</p></section>
+
+          <details id="planner-options" class="planner-options"><summary>调整学习计划</summary><label for="planner-daily-new">每天的新词数量</label><select id="planner-daily-new"><option value="5">5 个 · 轻量开始</option><option value="10" selected>10 个 · 日常节奏</option><option value="15">15 个 · 稳步提升</option><option value="20">20 个 · 加强练习</option><option value="30">30 个 · 强化训练</option></select><p class="supporting-text">未完成的新词优先延续，再补足当日额度；已完成的任务保留。调整不会改变已学词的复习日期。</p><button id="reset-planner" class="button button-secondary" type="button">重置学习计划</button><p class="supporting-text">从今天重新排课，清除计划、打卡和计划用时；原有课程、掌握标记、收藏与生词本保留。跨设备可通过“数据”页导出、恢复JSON备份。</p></details>
+        </section>
+
+        <section id="panel-learn" class="view-panel" role="tabpanel" aria-labelledby="tab-learn" hidden>
           <div class="section-heading"><div><p class="section-caption">随时练好下一次沟通</p><h2>今天，先讲清一句。</h2></div></div>
+          <div id="planner-word-link" class="planner-linked-task" hidden><p id="planner-word-note">这是今日计划中的词汇。</p><button id="complete-planned-word" class="button button-secondary" type="button">✅ 学习完成，返回今日任务</button></div>
           <div class="filters">
             <label>学习模块<select id="module-filter"></select></label>
             <label>学习范围<select id="status-filter"><option value="all">全部内容</option><option value="new">还未掌握</option><option value="review">待复习</option><option value="mastered">已掌握</option><option value="favorite">我的收藏</option></select></label>
@@ -93,6 +135,7 @@
 
         <section id="panel-practice" class="view-panel" role="tabpanel" aria-labelledby="tab-practice" hidden>
           <div class="section-heading"><div><p class="section-caption">把看懂的句子说出来</p><h2>听一句，跟读一句。</h2></div><button id="use-learning-target" class="button button-quiet" type="button">用当前学习卡</button></div>
+          <div id="planner-practice-link" class="planner-linked-task" hidden><p id="planner-practice-note"></p><button id="complete-planned-sentence" class="button button-secondary" type="button">✅ 跟读完成，返回今日任务</button></div>
           <article class="target-card"><span id="practice-module" class="module-label"></span><h3 id="practice-target" lang="en-US"></h3><p id="practice-translation" class="supporting-text"></p><button id="speak-target" class="button button-secondary" type="button">🔊 听目标句</button></article>
           <p id="recognition-support" class="supporting-text"></p>
           <div class="recording-toolbar"><button id="start-practice" class="button" type="button">🎤 开始跟读</button><button id="stop-practice" class="button button-secondary" type="button" disabled>结束识别</button><span id="practice-status" class="recording-status" role="status">也可以直接输入英文练习</span></div>
@@ -104,6 +147,7 @@
 
         <section id="panel-scenario" class="view-panel" role="tabpanel" aria-labelledby="tab-scenario" hidden>
           <div class="section-heading"><div><p class="section-caption">提前练好客户会问的问题</p><h2>轮到你回应客户。</h2></div></div>
+          <div id="planner-scenario-link" class="planner-linked-task" hidden><p>这是今日安排的情景。完成全部对话轮次后，会记入今日任务。</p><button id="back-to-today" class="button button-quiet" type="button">返回今日任务</button></div>
           <div class="filters scenario-filters"><label>选择情景<select id="scenario-select"><option value="exhibition">展会接待</option><option value="negotiation">价格谈判</option><option value="complaint">客诉处理</option></select></label><fieldset class="mode-switch"><legend>回答方式</legend><label><input type="radio" name="scenario-mode" value="voice" checked>语音模式</label><label><input type="radio" name="scenario-mode" value="text">文本模式</label></fieldset></div>
           <div id="scenario-intro" class="scenario-intro"><h3 id="scenario-title">展会接待</h3><p id="scenario-description">把产品介绍变成一次自然的客户交流。</p><p class="supporting-text">这是关键词练习，不判断商务承诺或产品参数是否正确。</p><button id="start-scenario" class="button" type="button">开始情景对练</button></div>
           <div id="scenario-session" hidden>
@@ -140,7 +184,8 @@
       </main>
 
       <nav class="bottom-nav" role="tablist" aria-label="学习功能">
-        <button id="tab-learn" type="button" role="tab" aria-controls="panel-learn" aria-selected="true" data-view="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h7a3 3 0 0 1 2 1 3 3 0 0 1 2-1h7v16h-7a3 3 0 0 0-2 1 3 3 0 0 0-2-1H3zM12 5v16"/></svg><span>学习</span></button>
+        <button id="tab-today" type="button" role="tab" aria-controls="panel-today" aria-selected="true" data-view="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v17H5zM8 2v4M16 2v4M5 9h14M8 14l2 2 5-5"/></svg><span>今日</span></button>
+        <button id="tab-learn" type="button" role="tab" aria-controls="panel-learn" aria-selected="false" data-view="learn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h7a3 3 0 0 1 2 1 3 3 0 0 1 2-1h7v16h-7a3 3 0 0 0-2 1 3 3 0 0 0-2-1H3zM12 5v16"/></svg><span>学习</span></button>
         <button id="tab-practice" type="button" role="tab" aria-controls="panel-practice" aria-selected="false" data-view="practice"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>跟读</span></button>
         <button id="tab-scenario" type="button" role="tab" aria-controls="panel-scenario" aria-selected="false" data-view="scenario"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v13H9l-5 5zM8 7h8M8 11h5"/></svg><span>对练</span></button>
         <button id="tab-vocabulary" type="button" role="tab" aria-controls="panel-vocabulary" aria-selected="false" data-view="vocabulary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v19l-7-4-7 4zM9 7h6M9 11h6"/></svg><span>生词本</span></button>

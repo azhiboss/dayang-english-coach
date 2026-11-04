@@ -2,20 +2,24 @@ import { DB } from './db.js';
 import { TTS, DEFAULT_RATE } from './tts.js';
 import { SpeechInput, compareWords } from './asr.js';
 import { validatePack, expandedToPack, parseImport, readFileText, downloadJSON } from './import.js';
+import { Planner, dateKey } from './planner.js';
 
 const $ = id => document.getElementById(id);
 const speech = new SpeechInput();
 const mediaTheme = window.matchMedia('(prefers-color-scheme: dark)');
+const planner = new Planner({ db: DB });
+const VIEW_NAMES = ['today', 'learn', 'practice', 'scenario', 'vocabulary', 'data'];
 const state = {
   packs: [], packId: '', progress: new Map(), weakWords: [], demo: null,
   moduleId: 'all', filter: 'all', index: 0, filtered: [], reveal: false,
-  view: 'learn', practice: null, practiceBusy: false, scenarioBusy: false,
+  view: 'today', practice: null, practiceBusy: false, scenarioBusy: false,
   generation: 0, listeningFor: null, scene: null, sceneMode: 'voice',
   rate: DEFAULT_RATE, voiceURI: '', theme: 'system', importCandidate: null,
   importGeneration: 0, importing: false, weakLimit: 40,
   offlineReady: false, waitingWorker: null, updateRequested: false,
   expanded: new Map(), dictionary: new Map(), vocabulary: new Map(), vocabLimit: 40,
   lookup: null, expandedError: '',
+  plan: null, plannerReady: false, planSession: null, plannedWord: null, plannedPractice: null, plannedScenario: null,
 };
 // Serialize attempt increments for the same learning item across both views.
 const attemptWrites = new Map();
@@ -166,6 +170,9 @@ function renderLearn(preferredId) {
   const preferredIndex = preferredId ? state.filtered.findIndex(item => item.id === preferredId) : -1;
   state.index = preferredIndex >= 0 ? preferredIndex : Math.min(Math.max(state.index, 0), Math.max(0, state.filtered.length - 1));
   const item = currentItem();
+  if (state.plannedWord && (!item || `${item.packId}/${item.id}` !== state.plannedWord.key)) {
+    state.plannedWord = null;$('planner-word-link').hidden = true;
+  }
   const empty = !item;
   $('learning-card').hidden = empty;
   $('learning-empty').hidden = !empty;
@@ -198,12 +205,14 @@ function renderLearn(preferredId) {
 }
 
 function switchView(view, focus = true) {
-  if (!['learn', 'practice', 'scenario', 'vocabulary', 'data'].includes(view)) return;
+  if (!VIEW_NAMES.includes(view)) return;
+  sampleStudyTime();
   cancelLookupPress();
   closeLookup();
   abortAudio();
   state.view = view;
-  for (const name of ['learn', 'practice', 'scenario', 'vocabulary', 'data']) {
+  document.querySelector('.course-bar').hidden = view === 'today';
+  for (const name of VIEW_NAMES) {
     $(`panel-${name}`).hidden = name !== view;
     $(`tab-${name}`).setAttribute('aria-selected', String(name === view));
     $(`tab-${name}`).tabIndex = name === view ? 0 : -1;
@@ -211,6 +220,7 @@ function switchView(view, focus = true) {
   if (view === 'practice' && !state.practice) setPracticeTarget(currentItem());
   if (view === 'data') renderData();
   if (view === 'vocabulary') renderVocabulary();
+  if (view === 'today' && state.plannerReady) refreshPlan().catch(report);
   if (focus) {
     $('main-content').focus({ preventScroll: true });
     $('main-content').scrollIntoView({ behavior: 'auto', block: 'start' });
@@ -244,6 +254,8 @@ function moveItem(direction) {
 
 function setPracticeTarget(item) {
   abortAudio();
+  state.plannedPractice = null;
+  $('planner-practice-link').hidden = true;
   state.practice = item ? { ...item } : null;
   $('practice-module').textContent = item?.moduleName || '弱项单词练习';
   $('practice-target').textContent = item?.en || '先到学习页选择一句话';
@@ -311,6 +323,9 @@ async function evaluatePractice() {
     const validWords = result.weakWords.filter(word => word.length <= 100 && /^[a-z0-9]+(?:['’\-][a-z0-9]+)*$/.test(word));
     for (let offset = 0; offset < validWords.length; offset += 200) await DB.addWeakWords(validWords.slice(offset, offset + 200), context);
     state.weakWords = await DB.listWeakWords();
+    if (generation === state.generation && state.plannedPractice) {
+      $('planner-practice-note').textContent = '本次跟读已保存。确认练习完成后，可点下方按钮计入今日任务。';
+    }
     if (generation === state.generation) {
       $('weak-save-status').textContent = validWords.length
         ? `本次 ${validWords.length} 个待练目标词已记入弱项词库。${validWords.length < result.weakWords.length ? '过长词项未写入，请分段练习。' : ''}`
@@ -390,6 +405,11 @@ function prepareScenario() {
   const sceneName = $('scenario-select').value;
   let pack = currentPack();
   let module = sceneModule(pack, sceneName);
+  if (state.plannedScenario?.scene === sceneName) {
+    const scheduledPack = state.packs.find(candidate => candidate.id === state.plannedScenario.packId);
+    const scheduledModule = scheduledPack?.modules.find(candidate => candidate.id === state.plannedScenario.moduleId);
+    if (scheduledModule) { pack = scheduledPack;module = scheduledModule; }
+  }
   if (!module) {
     pack = state.packs.find(candidate => sceneModule(candidate, sceneName));
     module = sceneModule(pack, sceneName);
@@ -450,6 +470,9 @@ function renderSceneTurn() {
 function startScenario() {
   abortAudio();
   state.scene = prepareScenario();
+  if (state.plannedScenario && state.plannedScenario.key !== `${state.scene.pack.id}/${state.scene.module.id}`) {
+    state.plannedScenario = null;$('planner-scenario-link').hidden = true;
+  }
   renderSceneTurn();
   if (state.sceneMode === 'voice') speakText(state.scene.turns[0].prompt.en);
 }
@@ -496,6 +519,12 @@ function nextScenario() {
     $('scenario-complete').hidden = false;
     const covered = scene.responses.filter(response => response?.matched > 0).length;
     $('scenario-complete-summary').textContent = `完成 ${scene.turns.length} 轮回答，其中 ${covered} 轮命中预设要点。换个表达再练一次，会更熟悉。`;
+    if (state.plannedScenario) {
+      const scheduled = state.plannedScenario;
+      completePlannedTask('scenario', scheduled.key, scheduled.date).then(() => {
+        if (state.scene === scene) $('scenario-complete-summary').textContent += ' 已计入今日任务。';
+      }).catch(report);
+    }
   } else {
     scene.index += 1;
     renderSceneTurn();
@@ -504,6 +533,8 @@ function nextScenario() {
 }
 function resetScenario() {
   abortAudio(); state.scene = null;
+  state.plannedScenario = null;
+  $('planner-scenario-link').hidden = true;
   $('scenario-intro').hidden = false;
   $('scenario-session').hidden = true;
   $('scenario-complete').hidden = true;
@@ -571,7 +602,7 @@ function previewImport(text) {
       const { backup } = parsed;
       $('import-preview-title').textContent = '学习备份';
       $('import-preview-description').textContent = `${backup.packs.length} 个课程包 · ${backup.progress.length} 条进度 · ${backup.weakWords.length} 个弱项词 · ${backup.vocabulary.length} 个生词`;
-      $('import-preview-policy').textContent = '与现有数据合并：课程按备份更新，进度保留较新记录，弱项次数取较大值；其他数据不清空。设置也会恢复。';
+      $('import-preview-policy').textContent = '课程按备份更新，进度保留较新记录，弱项次数取较大值，设置也会恢复。' + (Object.hasOwn(backup, 'planner') ? backup.planner ? '每日计划、打卡与计划用时将替换为这份备份中的快照。' : '备份中的每日计划为空，恢复将清除本机计划并重新排课。' : '旧版备份不含每日计划，本机计划将保留。');
     }
   } catch (error) { importFailure(error); }
 }
@@ -586,13 +617,14 @@ async function importFile(file) {
 async function confirmImport() {
   if (!state.importCandidate || state.importing) return;
   const candidate = state.importCandidate;
-  state.importing = true;
+  sampleStudyTime();state.importing = true;
   $('confirm-import').disabled = true;
   $('cancel-import').disabled = true;
   abortAudio();
   try {
-    if (candidate.kind === 'course') await DB.putPack(candidate.pack);
-    else await DB.restoreBackup(candidate.backup);
+    await flushStudyTime({ force: true });
+    await queuePlannerWrite(() => candidate.kind === 'course' ? DB.putPack(candidate.pack) : DB.restoreBackup(candidate.backup));
+    state.planSession = null;state.plannedWord = null;state.plannedPractice = null;state.plannedScenario = null;
     await reloadData(candidate.kind === 'course' ? candidate.pack.id : undefined);
     state.importCandidate = null;
     $('import-preview').hidden = true;
@@ -624,6 +656,7 @@ async function reloadData(preferredId) {
   applyTheme();updateVoices();renderPackControls();renderSummary();renderLearn();renderData();renderVocabulary();resetScenario();
   setPracticeTarget(currentItem());
   if (state.packId) await DB.setSetting('preferredPack', state.packId);
+  try { await refreshPlan({ force: true }); } catch (error) { showPlannerError(error); }
 }
 
 function updateOfflineStatus() {
@@ -634,6 +667,8 @@ function updateOfflineStatus() {
     : !window.isSecureContext ? '离线安装需要 HTTPS'
       : typeof navigator.serviceWorker?.register !== 'function' ? '当前浏览器不支持离线缓存'
         : navigator.onLine ? '离线资源正在准备' : '尚未确认离线缓存';
+  $('planner-offline-status').textContent = $('offline-status').textContent;
+  $('planner-offline-status').classList.toggle('is-ready', ready);
 }
 async function setupServiceWorker() {
   if (typeof navigator.serviceWorker?.register !== 'function' || !window.isSecureContext) { updateOfflineStatus();return; }
@@ -663,12 +698,13 @@ async function setupServiceWorker() {
 
 function wireEvents() {
   wireDictionary();
+  wirePlanner();
   document.querySelectorAll('.bottom-nav [data-view]').forEach(button => {
     button.addEventListener('click', () => switchView(button.dataset.view));
     button.addEventListener('keydown', e => {
       if (!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
       e.preventDefault();
-      const names = ['learn','practice','scenario','vocabulary','data'];
+      const names = VIEW_NAMES;
       const index = names.indexOf(state.view);
       const next = e.key === 'Home' ? 0 : e.key === 'End' ? names.length - 1 : (index + (e.key === 'ArrowRight' ? 1 : names.length - 1)) % names.length;
       switchView(names[next], false);$(`tab-${names[next]}`).focus();
@@ -747,7 +783,8 @@ function wireEvents() {
     setPracticeTarget(target);switchView('practice');
   });
   bind('export-backup','click',async () => {
-    const backup = await DB.exportBackup();downloadJSON(backup, `dayang-backup-${new Date().toISOString().slice(0,10)}.json`);toast('已发起备份下载；iPhone可将文件存到“文件”App。');
+    await flushStudyTime();
+    const backup = await queuePlannerWrite(() => DB.exportBackup());downloadJSON(backup, `dayang-backup-${dateKey()}.json`);toast('已发起备份下载；iPhone可将文件存到“文件”App。');
   });
   bind('export-course','click',() => { if (currentPack()) downloadJSON(currentPack(), `${currentPack().pack_name}.json`); });
   bind('import-file','change',e => importFile(e.target.files[0]));
@@ -1005,6 +1042,295 @@ async function loadExpandedContent() {
   }
 }
 
+// Daily planning uses one atomic IndexedDB snapshot. UI actions are serialized so
+// a late timer write cannot redraw an older task state over a completed one.
+let plannerWrites = Promise.resolve();
+let lastCelebration = '';
+const PLAN_LISTS = { new: 'newWords', review: 'reviews', sentence: 'sentences' };
+const PLAN_LABELS = { new: '新词学习', review: '间隔复习', sentence: '短句跟读', scenario: '情景模拟' };
+
+function showPlannerError(error) {
+  $('planner-error').hidden = false;
+  $('planner-error').textContent = `今日计划暂未更新：${errorMessage(error)}。可点击“刷新计划”重试，自由学习仍可使用。`;
+  if (!state.plan) $('start-today').disabled = true;
+}
+function queuePlannerWrite(action) {
+  const pending = plannerWrites.catch(() => {}).then(action);
+  plannerWrites = pending;
+  return pending;
+}
+function queuePlanner(action, { statsOnly = false } = {}) {
+  const pending = queuePlannerWrite(async () => {
+    const previousDate = state.plan?.date;
+    const view = await action();
+    state.plan = view;state.plannerReady = true;
+    $('planner-error').hidden = !view.notice;
+    if (view.notice) $('planner-error').textContent = view.notice;
+    if (statsOnly && previousDate === view.date) renderPlannerStats();
+    else renderPlanner();
+    if (view.completion.shouldCelebrate && !view.clockBack && lastCelebration !== view.date) {
+      lastCelebration = view.date;
+      const panel = $('planner-celebration');
+      panel.classList.add('is-celebrating');
+      queuePlanner(() => planner.acknowledgeCelebration(view.date), { statsOnly: true }).catch(showPlannerError);
+    }
+    return view;
+  });
+  return pending.catch(error => { showPlannerError(error);throw error; });
+}
+function refreshPlan({ force = false } = {}) {
+  if (state.importing && !force) return Promise.resolve(state.plan);
+  return queuePlanner(() => planner.refresh(state.packs, [...state.progress.values()]));
+}
+function allPlanTasks() {
+  if (!state.plan) return [];
+  const tasks = state.plan.tasks;
+  return [
+    ...tasks.reviews.map(task => ({ ...task, kind: 'review' })),
+    ...tasks.newWords.map(task => ({ ...task, kind: 'new' })),
+    ...tasks.sentences.map(task => ({ ...task, kind: 'sentence' })),
+    ...(tasks.scenario ? [{ ...tasks.scenario, kind: 'scenario' }] : []),
+  ];
+}
+function planTask(kind, taskKey) { return allPlanTasks().find(task => task.kind === kind && task.key === taskKey); }
+function readableDate(value, weekday = false) {
+  if (!value) return '暂无日期';
+  return new Date(`${value}T12:00:00`).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', ...(weekday ? { weekday: 'long' } : {}) });
+}
+function durationText(seconds) {
+  if (!seconds) return '0 分钟';
+  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+  return `${Math.floor(seconds / 3600)} 小时 ${Math.floor(seconds % 3600 / 60)} 分`;
+}
+function renderPlannerStats() {
+  const plan = state.plan;if (!plan) return;
+  $('planner-streak').textContent = `连续 ${plan.stats.streak} 天`;
+  $('planner-study-days').textContent = `${plan.stats.studyDays} 天`;
+  $('planner-mastered').textContent = `${plan.stats.mastered} 个`;
+  $('planner-week-time').textContent = durationText(plan.stats.weekSeconds);
+  $('planner-learned').textContent = `${plan.stats.learned} / ${plan.stats.totalVocabulary} 个`;
+  $('planner-finish-date').textContent = plan.stats.estimatedFinishDate ? readableDate(plan.stats.estimatedFinishDate) : plan.stats.totalVocabulary ? '当前规模下暂无法估算' : '先导入含词汇的课程';
+  $('planner-estimate-note').textContent = plan.stats.estimatedNewDate
+    ? `按每天${plan.dailyNew}个新词、如期完成复习估算；新词预计${readableDate(plan.stats.estimatedNewDate)}学完。短句和情景可持续训练，计划会随进度调整。`
+    : '计划会自动汇总本机已装入的课程；新词去重，例句用作跟读。';
+}
+function renderAgenda(kind, tasks) {
+  const list = $(`agenda-${kind}-list`);
+  $(`agenda-${kind}-count`).textContent = `${tasks.filter(task => task.done).length} / ${tasks.length}`;
+  if (!tasks.length) {
+    list.replaceChildren(node('p', 'agenda-empty', kind === 'review' ? '今天没有到期复习。新学的词会从次日开始安排。' : kind === 'scenario' ? '今天先把词汇和短句练好。' : kind === 'new' ? '当前课程的新词已安排完，可继续复习或导入课程。' : '当前没有可安排的短句，可先学习词汇。'));
+    return;
+  }
+  list.replaceChildren(...tasks.map(task => {
+    const row = node('article', `agenda-row${task.done ? ' is-done' : ''}`);
+    row.dataset.planKey = task.key;
+    const title = node('h4', '', `${task.done ? '✓ ' : ''}${kind === 'scenario' ? task.title : task.en}`);
+    if (kind !== 'scenario') title.lang = 'en-US';
+    const source = state.packs.find(pack => pack.id === task.packId);
+    row.append(title, node('p', 'supporting-text', kind === 'scenario' ? `完成一次${sceneInfo[task.scene]?.title || '客户沟通'} · ${task.rounds}轮` : `${source?.pack_name || ''} · ${task.moduleName || ''}${kind === 'review' ? ` · 第${task.repetition}次复习` : ''}`));
+    const tools = node('div', 'action-line');
+    const actions = kind === 'scenario' ? [['open', task.done ? '再练一次' : '开始对练']] : [['speak', '🔊 发音'], ['open', kind === 'sentence' ? '去跟读' : '展开学习']];
+    actions.push(['complete', task.done ? '✓ 已完成' : '✅ 完成']);
+    for (const [action, label] of actions) {
+      const button = node('button', 'button button-secondary', label);
+      button.type = 'button';button.dataset.planAction = action;button.dataset.planKind = kind;button.dataset.planKey = task.key;button.dataset.planDate = state.plan.date;
+      button.setAttribute('aria-label', `${label}：${kind === 'scenario' ? task.title : task.en}`);
+      if (action === 'complete') button.disabled = task.done || state.plan.clockBack;
+      tools.append(button);
+    }
+    row.append(tools);return row;
+  }));
+}
+function renderPlanner() {
+  const plan = state.plan;if (!plan) return;
+  $('planner-date').textContent = readableDate(plan.date, true);
+  $('planner-percent').textContent = `${plan.completion.percent}%`;
+  $('planner-progress').value = plan.completion.percent;
+  $('planner-progress').textContent = `${plan.completion.percent}%`;
+  $('planner-progress-text').textContent = `已完成 ${plan.completion.done} / ${plan.completion.total} 项${plan.weekend ? ' · 周末轻松日' : ''}`;
+  $('planner-new-count').textContent = plan.tasks.newWords.length;
+  $('planner-review-count').textContent = plan.tasks.reviews.length;
+  $('planner-sentence-count').textContent = plan.tasks.sentences.length;
+  $('planner-scene-count').textContent = plan.tasks.scenario ? '1 场' : '休息日';
+  $('planner-new-detail').textContent = `还剩${plan.remaining.newWords}个 · 每日目标${plan.dailyNew}个`;
+  $('planner-review-detail').textContent = `还剩${plan.remaining.reviews}个 · 今日最多${plan.review.limit}个`;
+  $('planner-scene-detail').textContent = plan.tasks.scenario ? sceneInfo[plan.tasks.scenario.scene]?.title || '客户情景练习' : plan.nextScenarioDate ? `下次：${readableDate(plan.nextScenarioDate)}` : '可导入含情景的课程';
+  const start = $('start-today');start.disabled = plan.clockBack || !plan.completion.total;
+  start.replaceChildren(document.createTextNode(plan.completion.allDone ? '今日已完成 · 自由学习' : plan.completion.done ? '继续今日学习' : '开始今日学习'), node('span', '', '→'));
+  $('planner-carry-note').textContent = plan.review.deferred ? `另有${plan.review.deferred}个到期词顺延，明天会优先安排。未完成任务会自动接续。` : '复习先行，再学新词；没完成的任务，下次打开会接着安排。';
+  $('agenda-review-note').textContent = `新学后第1、2、4、7、15、30天复习；今天上限${plan.review.limit}个${plan.weekend ? '，周末减半取整' : ''}。`;
+  $('agenda-scenario-note').textContent = plan.tasks.scenario ? `本次安排：${sceneInfo[plan.tasks.scenario.scene]?.title || '客户沟通'}。周二、周四、周六安排，漏练时优先接续一场。` : plan.nextScenarioDate ? `下一次安排在${readableDate(plan.nextScenarioDate, true)}。` : '导入含展会、谈判或客诉情景的课程后，会自动安排。';
+  renderAgenda('review', plan.tasks.reviews);renderAgenda('new', plan.tasks.newWords);renderAgenda('sentence', plan.tasks.sentences);renderAgenda('scenario', plan.tasks.scenario ? [plan.tasks.scenario] : []);
+  $('planner-daily-new').value = String(plan.dailyNew);
+  $('planner-celebration').hidden = !plan.completion.allDone;
+  if (!plan.completion.allDone) $('planner-celebration').classList.remove('is-celebrating');
+  $('planner-encouragement').textContent = ['今天的积累，会让下一次客户沟通更从容。', '认真练完一小步，表达就更熟练一点。', '练习已经留下记录，明天继续把句子说顺。'][plan.stats.studyDays % 3];
+  renderPlannerStats();renderPlanSession();
+}
+function renderPlanSession() {
+  const context = state.planSession;
+  const task = context && context.date === state.plan?.date ? planTask(context.kind, context.key) : null;
+  $('today-session').hidden = !task;
+  if (!task) { state.planSession = null;return; }
+  $('today-session-type').textContent = PLAN_LABELS[context.kind];
+  $('today-session-title').textContent = context.kind === 'scenario' ? task.title : task.en;
+  $('today-session-source').textContent = context.kind === 'scenario' ? `${task.rounds}轮 · 可语音回答或用文本模式` : `${task.moduleName || ''}${context.kind === 'review' ? ` · 第${task.repetition}次复习` : ''}`;
+  $('today-session-zh').textContent = context.kind === 'scenario' ? '进入对练页，完成整段客户问答；也可以在实际练习后自行标记完成。' : task.zh;
+  $('today-session-speak').hidden = context.kind === 'scenario';
+  $('today-session-open').textContent = context.kind === 'scenario' ? '开始对练' : context.kind === 'sentence' ? '去跟读' : '展开学习';
+  $('today-session-complete').disabled = task.done || state.plan.clockBack;
+}
+function startTodaySession() {
+  if (state.plan?.completion.allDone) { switchView('learn');return; }
+  const task = allPlanTasks().find(task => !task.done);
+  if (!task) return toast('今天暂无待做任务，可先导入课程或自由学习。');
+  state.planSession = { kind: task.kind, key: task.key, date: state.plan.date };
+  $('today-session-meaning').open = false;
+  renderPlanSession();$('today-session').scrollIntoView({ block: 'start', behavior: 'auto' });$('today-session-open').focus({ preventScroll: true });
+}
+async function completePlannedTask(kind, taskKey, scheduledDate = state.plan?.date) {
+  if (state.importing) throw new Error('正在导入资料，请等待完成后再记录任务');
+  if (scheduledDate !== dateKey()) { await refreshPlan();throw new Error('日期已变化，已刷新今天的任务，请重新选择'); }
+  const task = planTask(kind, taskKey);
+  if (!task) { await refreshPlan();throw new Error('任务或课程已变化，请重新选择'); }
+  const result = await queuePlanner(() => planner.complete(kind, taskKey, scheduledDate));
+  if ((kind === 'new' || kind === 'review') && task.packId && task.itemId) {
+    try {
+      const existing = await DB.getProgress(task.packId, task.itemId);
+      const learned = planner.snapshot?.learned[taskKey];
+      const record = await DB.saveProgress(task.packId, task.itemId, { status: existing?.status === 'mastered' || learned?.mastered ? 'mastered' : 'review' });
+      state.progress.set(key(task.packId, task.itemId), record);renderSummary();renderLearn(currentItem()?.id);
+    } catch (error) { toast(`计划完成情况已保存，学习卡标记未同步：${errorMessage(error)}`); }
+  }
+  return result;
+}
+async function openPlannedTask(kind, taskKey) {
+  if (state.importing) throw new Error('正在导入资料，请等待完成后再进入任务');
+  const task = planTask(kind, taskKey);if (!task) throw new Error('任务已变化，请刷新今日任务');
+  const context = { ...task, kind, date: state.plan.date };
+  if (kind === 'scenario') {
+    state.packId = task.packId;renderPackControls();renderSummary();
+    $('scenario-select').value = task.scene;resetScenario();state.plannedScenario = context;
+    $('planner-scenario-link').hidden = false;switchView('scenario');startScenario();
+  } else if (kind === 'sentence') {
+    const pack = state.packs.find(candidate => candidate.id === task.packId);
+    const original = flatten(pack).find(item => item.id === task.itemId);
+    setPracticeTarget({ ...original, en: task.en, zh: task.zh, id: task.itemId, packId: task.packId, moduleName: task.moduleName });
+    state.plannedPractice = context;$('planner-practice-link').hidden = false;
+    $('planner-practice-note').textContent = '这是今日安排的短句。听读并练习后，点击完成即可计入今日任务。';switchView('practice');
+  } else {
+    state.packId = task.packId;state.moduleId = 'all';state.filter = 'all';state.index = 0;state.reveal = true;
+    $('course-search').value = '';renderPackControls();renderSummary();renderLearn(task.itemId);
+    state.plannedWord = context;$('planner-word-link').hidden = false;
+    $('planner-word-note').textContent = `${PLAN_LABELS[kind]}：${task.en}。完成后返回今日任务，${kind === 'new' ? '系统会自动安排后续复习。' : '记录本次复习。'}`;
+    switchView('learn');await DB.setSetting('preferredPack', state.packId);
+  }
+}
+async function completeAndReturn(context) {
+  if (!context) return;
+  await completePlannedTask(context.kind, context.key, context.date);
+  state.plannedPractice = null;state.plannedWord = null;$('planner-practice-link').hidden = true;$('planner-word-link').hidden = true;
+  switchView('today');
+  if (!state.plan?.completion.allDone) startTodaySession();
+}
+
+// Time accrues only in a visible study view after user activity. Sleeping tabs
+// cannot turn a throttled timer into hours of study; date splits use local midnight.
+const studyClock = { ready: false, visible: !document.hidden, lastSample: Date.now(), lastActivity: 0, pending: new Map() };
+const STUDY_VIEWS = new Set(['today', 'learn', 'practice', 'scenario', 'vocabulary']);
+function sampleStudyTime(now = Date.now()) {
+  const start = studyClock.lastSample;studyClock.lastSample = now;
+  if (now < start) { studyClock.lastActivity = 0;return; }
+  if (!studyClock.ready || !studyClock.visible || !STUDY_VIEWS.has(state.view) || state.importing || !state.plannerReady || state.plan?.clockBack || now - start > 20000) return;
+  let cursor = start, end = Math.min(now, studyClock.lastActivity + 90000);
+  while (cursor < end) {
+    const date = new Date(cursor), next = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
+    const limit = Math.min(end, next), day = dateKey(date);
+    studyClock.pending.set(day, (studyClock.pending.get(day) || 0) + (limit - cursor) / 1000);cursor = limit;
+  }
+}
+async function flushStudyTime({ force = false } = {}) {
+  if (state.importing && !force) return;
+  sampleStudyTime();
+  const records = [];
+  for (const [date, amount] of studyClock.pending) {
+    const seconds = Math.floor(amount);
+    if (!seconds) continue;
+    studyClock.pending.set(date, amount - seconds);
+    for (let remaining = seconds; remaining > 0; remaining -= 300) records.push({ date, seconds: Math.min(300, remaining) });
+  }
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    try { await queuePlanner(() => planner.recordTime(record.seconds, record.date), { statsOnly: true }); }
+    catch (error) {
+      for (const pending of records.slice(index)) studyClock.pending.set(pending.date, (studyClock.pending.get(pending.date) || 0) + pending.seconds);
+      throw error;
+    }
+  }
+}
+function wirePlanner() {
+  bind('start-today', 'click', startTodaySession);
+  bind('refresh-today', 'click', refreshPlan);
+  bind('close-today-session', 'click', () => { state.planSession = null;renderPlanSession(); });
+  bind('today-session-speak', 'click', () => { const c = state.planSession, t = c && planTask(c.kind, c.key);if (t) speakText(t.en); });
+  bind('today-session-open', 'click', () => { const c = state.planSession;return c && openPlannedTask(c.kind, c.key); });
+  bind('today-session-complete', 'click', async () => {
+    const context = state.planSession;if (!context) return;
+    $('today-session-complete').disabled = true;
+    try {
+      await completePlannedTask(context.kind, context.key, context.date);
+      if (state.plan?.completion.allDone) { state.planSession = null;$('planner-celebration').scrollIntoView({ block: 'center' }); }
+      else startTodaySession();
+    }
+    finally { renderPlanSession(); }
+  });
+  bind('panel-today', 'click', event => {
+    const button = event.target.closest('button[data-plan-action]');if (!button) return;
+    const { planAction: action, planKind: kind, planKey: taskKey, planDate: scheduledDate } = button.dataset;
+    const task = planTask(kind, taskKey);if (!task) return;
+    if (action === 'speak') return speakText(task.en);
+    if (action === 'open') return openPlannedTask(kind, taskKey);
+    button.disabled = true;
+    return completePlannedTask(kind, taskKey, scheduledDate).finally(() => { if (button.isConnected) button.disabled = Boolean(planTask(kind, taskKey)?.done); });
+  });
+  bind('complete-planned-word', 'click', () => completeAndReturn(state.plannedWord));
+  bind('complete-planned-sentence', 'click', () => completeAndReturn(state.plannedPractice));
+  bind('back-to-today', 'click', () => switchView('today'));
+  bind('planner-free-study', 'click', () => switchView('learn'));
+  bind('planner-daily-new', 'change', async event => {
+    if (state.importing) { event.target.value = String(state.plan.dailyNew);throw new Error('导入完成后可调整学习计划'); }
+    const amount = Number(event.target.value);event.target.disabled = true;
+    try { await queuePlanner(() => planner.setDailyNew(amount));toast(`每天安排${amount}个新词，已完成的任务保留。`); }
+    finally { event.target.disabled = false; }
+  });
+  bind('reset-planner', 'click', async () => {
+    if (state.importing) throw new Error('导入完成后可重置学习计划');
+    if (!window.confirm('从今天重新开始每日计划？计划、打卡与计划用时会重置。原有课程、掌握标记、收藏和生词本保留。建议先导出备份。')) return;
+    $('reset-planner').disabled = true;
+    try {
+      await flushStudyTime();state.planSession = null;state.plannedWord = null;state.plannedPractice = null;state.plannedScenario = null;lastCelebration = '';
+      $('planner-word-link').hidden = true;$('planner-practice-link').hidden = true;$('planner-scenario-link').hidden = true;
+      await queuePlanner(() => planner.reset());studyClock.pending.clear();studyClock.lastActivity = 0;studyClock.lastSample = Date.now();toast('计划已从今天重新开始，原有课程和词本保留。');
+    } finally { $('reset-planner').disabled = false; }
+  });
+  const activity = () => { sampleStudyTime();if (studyClock.ready && STUDY_VIEWS.has(state.view)) studyClock.lastActivity = Date.now(); };
+  document.addEventListener('pointerdown', activity, { passive: true });document.addEventListener('keydown', activity);document.addEventListener('input', activity, { passive: true });
+  window.addEventListener('scroll', activity, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    sampleStudyTime();studyClock.visible = !document.hidden;
+    if (document.hidden) { studyClock.lastActivity = 0;flushStudyTime().catch(showPlannerError); }
+    else if (state.plannerReady && !state.importing) refreshPlan().catch(showPlannerError);
+  });
+  window.addEventListener('pagehide', () => { sampleStudyTime();studyClock.lastActivity = 0;flushStudyTime().catch(() => {}); });
+  window.addEventListener('focus', () => { if (state.plannerReady && !state.importing) refreshPlan().catch(showPlannerError); });
+  setInterval(() => {
+    sampleStudyTime();
+    if (studyClock.ready && state.plan && state.plan.date !== dateKey() && !document.hidden && !state.importing) refreshPlan().catch(showPlannerError);
+  }, 5000);
+  setInterval(() => { if (state.plannerReady) flushStudyTime().catch(showPlannerError); }, 15000);
+}
+
 async function boot() {
   wireEvents();
   TTS.subscribeVoices(updateVoices);
@@ -1026,7 +1352,9 @@ async function boot() {
     await reloadData(state.expandedAdded && packs.length === 1 && packs[0].id === state.demo?.id ? 'dayang-expanded-v1' : undefined);
     $('boot-screen').hidden = true;
     $('app-content').hidden = false;
-    switchView('learn', false);
+    switchView('today', false);
+    studyClock.ready = true;
+    studyClock.lastSample = Date.now();
     updateRecordingUI();
     updateOfflineStatus();
     setupServiceWorker();
