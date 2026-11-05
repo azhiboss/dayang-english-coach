@@ -9,6 +9,7 @@ const speech = new SpeechInput();
 const mediaTheme = window.matchMedia('(prefers-color-scheme: dark)');
 const planner = new Planner({ db: DB });
 const VIEW_NAMES = ['today', 'learn', 'practice', 'scenario', 'vocabulary', 'data'];
+const UNIFIED_PACK_ID = 'dayang-unified-catalog-20261105';
 const state = {
   packs: [], packId: '', progress: new Map(), weakWords: [], demo: null,
   moduleId: 'all', filter: 'all', index: 0, filtered: [], reveal: false,
@@ -18,7 +19,7 @@ const state = {
   importGeneration: 0, importing: false, weakLimit: 40,
   offlineReady: false, waitingWorker: null, updateRequested: false,
   expanded: new Map(), dictionary: new Map(), vocabulary: new Map(), vocabLimit: 40,
-  lookup: null, expandedError: '',
+  lookup: null, expandedError: '', unifiedError: '', unifiedAdded: false,
   plan: null, plannerReady: false, planSession: null, plannedWord: null, plannedPractice: null, plannedScenario: null,
 };
 // Serialize attempt increments for the same learning item across both views.
@@ -848,9 +849,11 @@ function lookupSentence(element, text) {
   element.append(document.createTextNode(text.slice(position)));
 }
 function renderExamples(item) {
-  $('examples-list').replaceChildren(...examplesFor(item).map((example, index) => {
+  const examples = examplesFor(item);
+  $('examples-list').replaceChildren(...examples.map((example, index) => {
     const article = node('article', 'expanded-example');
-    article.append(node('p', 'example-level', `例句 ${index + 1} · ${index < 2 ? '基础' : index < 4 ? '进阶' : '商务长句'}`));
+    article.append(node('p', 'example-level', examples.length === 5
+      ? `例句 ${index + 1} · ${index < 2 ? '基础' : index < 4 ? '进阶' : '商务长句'}` : `表达 ${index + 1}`));
     const english = node('p', 'lookup-sentence');
     english.lang = 'en-US';lookupSentence(english, example.en);
     article.append(english, node('p', 'example-translation', example.zh));
@@ -1039,6 +1042,21 @@ async function loadExpandedContent() {
         if (/^[a-z0-9]+(?:['\-][a-z0-9]+)*$/.test(word) && typeof record.zh === 'string' && typeof record.phonetic === 'string') state.dictionary.set(word, record);
       }
     }
+  }
+}
+
+async function loadUnifiedContent() {
+  try {
+    const response = await fetch('./dayang_unified_courses.json');
+    if (!response.ok) throw new Error(`课程文件HTTP ${response.status}`);
+    const pack = validatePack(await response.json());
+    if (pack.id !== UNIFIED_PACK_ID) throw new Error('图册对照课程标识不匹配');
+    const existing = await DB.getPack(pack.id);
+    // Keep matching IDs and progress; a manually imported newer version wins.
+    if (!existing || existing.version.localeCompare(pack.version, 'en', { numeric: true }) < 0) await DB.putPack(pack);
+    state.unifiedAdded = !existing;
+  } catch (error) {
+    state.unifiedError = `图册对照课程暂未载入，请联网重新打开后重试。${errorMessage(error)}`;
   }
 }
 
@@ -1349,7 +1367,10 @@ async function boot() {
     }
     if (!packs.length && state.demo) { await DB.putPack(state.demo);packs = [state.demo]; }
     await loadExpandedContent();
-    await reloadData(state.expandedAdded && packs.length === 1 && packs[0].id === state.demo?.id ? 'dayang-expanded-v1' : undefined);
+    await loadUnifiedContent();
+    const preferred = state.unifiedAdded ? UNIFIED_PACK_ID
+      : state.expandedAdded && packs.length === 1 && packs[0].id === state.demo?.id ? 'dayang-expanded-v1' : undefined;
+    await reloadData(preferred);
     $('boot-screen').hidden = true;
     $('app-content').hidden = false;
     switchView('today', false);
@@ -1358,7 +1379,8 @@ async function boot() {
     updateRecordingUI();
     updateOfflineStatus();
     setupServiceWorker();
-    if (state.expandedError) toast(state.expandedError);
+    const contentErrors = [state.expandedError, state.unifiedError].filter(Boolean);
+    if (contentErrors.length) toast(contentErrors.join(' '));
   } catch (error) {
     $('boot-screen').hidden = true;$('fatal-screen').hidden = false;
     $('fatal-message').textContent = errorMessage(error);
