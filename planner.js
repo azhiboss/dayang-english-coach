@@ -1,10 +1,11 @@
 /* Local calendar scheduling. No network, DOM, notifications, or cloud services. */
+import { applyMemoryRating, migrateMemory, memoryDue, memoryPriority, memoryStats } from './memory.js';
 export const REVIEW_INTERVALS = Object.freeze([1, 2, 4, 7, 15, 30]);
 export const DAILY_NEW_OPTIONS = Object.freeze([5, 10, 15, 20, 30]);
 export const DEFAULT_DAILY_NEW = 10;
 const DAY_MS = 86400000;
 const SENTENCES_PER_DAY = 4;
-const FORECAST_DAYS = 36600;
+const FORECAST_DAYS = 5000;
 const SCENES = ['exhibition', 'negotiation', 'complaint'];
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const copy = value => value == null ? value : JSON.parse(JSON.stringify(value));
@@ -28,7 +29,7 @@ export function daysBetween(first, second) {
   return Math.round((Date.parse(`${dateKey(second)}T12:00:00Z`) - Date.parse(`${dateKey(first)}T12:00:00Z`)) / DAY_MS);
 }
 function weekday(date) { return new Date(`${dateKey(date)}T12:00:00Z`).getUTCDay(); }
-export function reviewLimit(date) { return [0, 6].includes(weekday(date)) ? 37 : 75; }
+export function reviewLimit(date) { dateKey(date);return 30; }
 function normalizedEnglish(value) { return String(value || '').normalize('NFKC').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim(); }
 function words(value) { return String(value).match(/[A-Za-z0-9]+(?:['’\-][A-Za-z0-9]+)*/g) || []; }
 function stableHash(value) {
@@ -94,16 +95,10 @@ export function buildCatalog(packs = []) {
 }
 
 function blankDay(date) {
-  return { date, newKeys: [], reviewKeys: [], sentenceKeys: [], scenarioKey: null, doneNew: [], doneReviews: [], doneSentences: [], scenarioDone: false, seconds: 0, celebrated: false, completedAt: null };
+  return { date, newKeys: [], reviewKeys: [], sentenceKeys: [], scenarioKey: null, doneNew: [], doneReviews: [], doneSentences: [], scenarioDone: false, seconds: 0, celebrated: false, completedAt: null, memoryRatedKeys: [] };
 }
 export function initialState(today, instant = new Date().toISOString()) {
-  return { schemaVersion: 1, startedOn: dateKey(today), dailyNew: DEFAULT_DAILY_NEW, learned: {}, days: {}, updatedAt: instant };
-}
-function firstFutureDue(record, today) {
-  if (record.completedIntervals.length >= REVIEW_INTERVALS.length) return null;
-  const nextDates = REVIEW_INTERVALS.slice(record.completedIntervals.length).map(offset => addDays(record.learnedOn, offset)).filter(date => date > today);
-  // Overdue stages never turn into fictitious completed repetitions. Finish any remaining stages one per later day.
-  return nextDates[0] || addDays(today, 1);
+  return { schemaVersion: 1, memoryVersion: 1, startedOn: dateKey(today), dailyNew: DEFAULT_DAILY_NEW, learned: {}, days: {}, updatedAt: instant };
 }
 function learnedRecord(item, learnedOn, source = 'planner') {
   return { enKey: item.enKey, learnedOn, lastReviewedOn: null, nextDue: addDays(learnedOn, 1), completedIntervals: [], mastered: false, source };
@@ -117,6 +112,7 @@ function seedLegacy(state, catalog, progress, today) {
     if (!current || record.status === 'mastered' || current.status !== 'mastered' && record.updatedAt > current.updatedAt) byKey.set(canonical, record);
   }
   for (const [key, previous] of byKey) {
+    if (state.learned[key]) continue;
     const item = catalog.wordMap.get(key);
     let anchor = addDays(today, -1);
     try {
@@ -129,13 +125,24 @@ function seedLegacy(state, catalog, progress, today) {
     state.learned[key] = record;
   }
 }
+function migrateMemories(state, catalog, progress, today) {
+  if (state.memoryVersion !== 1) seedLegacy(state, catalog, progress, today);
+  for (const [key, record] of Object.entries(state.learned)) {
+    if (!record.memory) {
+      record.memory = migrateMemory(key, today);
+      record.mastered = false;record.nextDue = record.memory.nextReviewDates[0];
+    }
+  }
+  state.memoryVersion = 1;
+}
 function reconcileLearned(state, catalog) {
   const transfers = new Map();
   for (const [key, record] of Object.entries(state.learned)) {
     const canonical = catalog.byEnglish.get(record.enKey);
     if (!canonical) continue; // Keep historical learning if a course is temporarily removed.
     const existing = transfers.get(canonical.key);
-    if (!existing || record.completedIntervals.length > existing.completedIntervals.length || record.completedIntervals.length === existing.completedIntervals.length && record.learnedOn < existing.learnedOn) transfers.set(canonical.key, { ...record });
+    const newerMemory = record.memory && (!existing?.memory || record.memory.lastReviewDate > existing.memory.lastReviewDate);
+    if (!existing || newerMemory || !record.memory && !existing.memory && (record.completedIntervals.length > existing.completedIntervals.length || record.completedIntervals.length === existing.completedIntervals.length && record.learnedOn < existing.learnedOn)) transfers.set(canonical.key, { ...record, ...(record.memory ? { memory: { ...record.memory, wordId: canonical.key } } : {}) });
     if (key !== canonical.key) delete state.learned[key];
   }
   for (const [key, record] of transfers) state.learned[key] = record;
@@ -143,30 +150,44 @@ function reconcileLearned(state, catalog) {
 function remapWordKeys(values, state, catalog) {
   return unique(values.map(key => catalog.aliases.get(key) || key));
 }
-function isStudyDay(day) { return Boolean(day.doneNew.length || day.doneReviews.length || day.doneSentences.length || day.scenarioDone); }
+function isStudyDay(day) { return Boolean(day.doneNew.length || day.doneReviews.length || day.doneSentences.length || day.scenarioDone || day.memoryRatedKeys?.length); }
 function sceneForDate(catalog, date) {
   const index = { 2: 0, 4: 1, 6: 2 }[weekday(date)];
   if (index === undefined || !catalog.scenarios.length) return null;
   return catalog.scenarios.find(scene => scene.scene === SCENES[index]) || catalog.scenarios[index % catalog.scenarios.length];
 }
 function previousDays(state, today) { return Object.keys(state.days).filter(date => date < today).sort().map(date => state.days[date]); }
+// Finish an active observation cohort before admitting interrupted observations.
+// Within "known", a second consecutive day takes precedence over a first day.
+// This prevents an overdue cohort from repeatedly breaking another cohort's streak.
+function observationRank(status, count, lastDate, yesterday) {
+  return status === 'known' && lastDate === yesterday ? 3 - count : 3;
+}
 function ensureToday(state, catalog, today, instant) {
   reconcileLearned(state, catalog);
   const existed = own(state.days, today), day = existed ? state.days[today] : blankDay(today);
+  day.memoryRatedKeys = remapWordKeys(day.memoryRatedKeys || [], state, catalog);
   const prior = previousDays(state, today);
   for (const field of ['newKeys', 'reviewKeys', 'doneNew', 'doneReviews']) day[field] = remapWordKeys(day[field], state, catalog);
   // Retain completed references for the check-in history even if their course was removed.
   const completedNew = day.doneNew;
+  const lockedNew = unique([...completedNew, ...day.newKeys.filter(key => state.learned[key]?.learnedOn === today)]).filter(key => catalog.wordMap.has(key) || completedNew.includes(key));
   const pendingNew = unique([
     ...day.newKeys,
     ...prior.flatMap(previous => previous.newKeys.filter(key => !previous.doneNew.includes(key))).map(key => catalog.aliases.get(key) || key),
     ...catalog.words.map(item => item.key),
   ]).filter(key => catalog.wordMap.has(key) && !state.learned[key] && !completedNew.includes(key));
-  day.newKeys = [...completedNew, ...pendingNew.slice(0, Math.max(0, state.dailyNew - completedNew.length))];
+  day.newKeys = [...lockedNew, ...pendingNew.filter(key => !lockedNew.includes(key)).slice(0, Math.max(0, state.dailyNew - lockedNew.length))];
+  const yesterday = addDays(today, -1);
   const due = catalog.words.filter(item => {
     const record = state.learned[item.key];
-    return record && !record.mastered && record.nextDue && record.nextDue <= today && !day.doneReviews.includes(item.key);
-  }).sort((a, b) => state.learned[a.key].nextDue.localeCompare(state.learned[b.key].nextDue) || state.learned[a.key].learnedOn.localeCompare(state.learned[b.key].learnedOn) || a.key.localeCompare(b.key));
+    return record?.memory && memoryDue(record, today) && !day.newKeys.includes(item.key) && !day.doneReviews.includes(item.key);
+  }).sort((a, b) => {
+    const left = state.learned[a.key], right = state.learned[b.key];
+    return memoryPriority(left) - memoryPriority(right)
+      || observationRank(left.memory.currentStatus, left.memory.consecutiveKnownCount, left.memory.lastReviewDate, yesterday) - observationRank(right.memory.currentStatus, right.memory.consecutiveKnownCount, right.memory.lastReviewDate, yesterday)
+      || left.nextDue.localeCompare(right.nextDue) || left.learnedOn.localeCompare(right.learnedOn) || a.key.localeCompare(b.key);
+  });
   day.reviewKeys = [...day.doneReviews, ...due.slice(0, Math.max(0, reviewLimit(today) - day.doneReviews.length)).map(item => item.key)];
   const lastSentenceDone = new Map(), lastSceneDone = new Map();
   for (const previous of prior) {
@@ -208,55 +229,39 @@ function completionFor(day, catalog) {
   return { done, total, percent: total ? Math.round(done / total * 100) : 0, allDone: total > 0 && done === total, shouldCelebrate: total > 0 && done === total && !day.celebrated };
 }
 
-class MinHeap {
-  constructor(values = []) { this.values = [];for (const value of values) this.push(value); }
-  less(a, b) { return a.due < b.due || a.due === b.due && a.order < b.order; }
-  push(value) {
-    const values = this.values;values.push(value);let index = values.length - 1;
-    while (index > 0) { const parent = (index - 1) >> 1;if (!this.less(values[index], values[parent])) break;[values[index], values[parent]] = [values[parent], values[index]];index = parent; }
-  }
-  pop() {
-    const values = this.values, first = values[0], last = values.pop();
-    if (values.length) { values[0] = last;let index = 0;while (true) { let next = index, left = index * 2 + 1, right = left + 1;if (left < values.length && this.less(values[left], values[next])) next = left;if (right < values.length && this.less(values[right], values[next])) next = right;if (next === index) break;[values[index], values[next]] = [values[next], values[index]];index = next; } }
-    return first;
-  }
-  get size() { return this.values.length; }
-  peek() { return this.values[0]; }
-}
-
+// Optimistic forecast of first mastery, not the end of lifelong maintenance.
+// Mastered maintenance has lower priority than all acquisition/observation tasks.
 export function estimateDates(state, catalog, today) {
-  const total = catalog.words.length;
-  if (!total) return { estimatedNewDate: null, estimatedFinishDate: null };
-  const learned = catalog.words.map(item => state.learned[item.key]).filter(Boolean);
-  let unlearned = total - learned.length;
-  const startNumber = Math.floor(Date.parse(`${today}T12:00:00Z`) / DAY_MS);
-  let lastNew = learned.length ? Math.max(...learned.map(record => Math.floor(Date.parse(`${record.learnedOn}T12:00:00Z`) / DAY_MS))) : startNumber;
-  const numberToKey = number => new Date(number * DAY_MS).toISOString().slice(0, 10);
-  const heap = new MinHeap();let serial = 0;
-  for (const record of learned) if (!record.mastered && record.nextDue) heap.push({ learned: Math.floor(Date.parse(`${record.learnedOn}T12:00:00Z`) / DAY_MS), due: Math.floor(Date.parse(`${record.nextDue}T12:00:00Z`) / DAY_MS), count: record.completedIntervals.length, order: serial++ });
-  if (!unlearned && !heap.size) {
-    const finish = learned.map(record => record.lastReviewedOn || record.learnedOn).sort().at(-1) || today;
-    return { estimatedNewDate: numberToKey(lastNew), estimatedFinishDate: finish };
-  }
-  const existingDay = state.days[today] || blankDay(today);
+  if (!catalog.words.length) return { estimatedNewDate: null, estimatedFinishDate: null };
+  const records = catalog.words.map(item => state.learned[item.key]).filter(Boolean);
+  let unlearned = catalog.words.length - records.length;
+  let lastNew = records.map(record => record.learnedOn).sort().at(-1) || today;
+  let serial = 0;
+  const pending = records.filter(record => record.memory?.currentStatus !== 'mastered').map(record => ({
+    status: record.memory?.currentStatus || 'known', count: record.memory?.consecutiveKnownCount || 0,
+    last: record.memory?.lastReviewDate || addDays(today, -1),
+    due: record.nextDue || today, learned: record.learnedOn, order: serial++,
+  }));
+  if (!pending.length && !unlearned) return { estimatedNewDate: lastNew, estimatedFinishDate: today };
+  const todayLearned = records.filter(record => record.learnedOn === today).length;
   for (let offset = 0; offset < FORECAST_DAYS; offset += 1) {
-    const number = startNumber + offset, date = numberToKey(number);
-    const allowance = Math.max(0, state.dailyNew - (offset === 0 ? existingDay.doneNew.length : 0));
-    const count = Math.min(unlearned, allowance);
-    for (let index = 0; index < count; index += 1) heap.push({ learned: number, due: number + 1, count: 0, order: serial++ });
-    if (count) lastNew = number;
-    unlearned -= count;
-    const capacity = Math.max(0, reviewLimit(date) - (offset === 0 ? existingDay.doneReviews.length : 0));
-    for (let done = 0; done < capacity && heap.size && heap.peek().due <= number; done += 1) {
-      const record = heap.pop();record.count += 1;
-      if (record.count < REVIEW_INTERVALS.length) {
-        record.due = REVIEW_INTERVALS.slice(record.count).map(interval => record.learned + interval).find(due => due > number) || number + 1;
-        heap.push(record);
-      }
+    const date = addDays(today, offset), yesterday = addDays(date, -1);
+    const fresh = Math.min(unlearned, Math.max(0, state.dailyNew - (offset === 0 ? todayLearned : 0)));
+    for (let index = 0; index < fresh; index += 1) pending.push({ status: 'known', count: 1, last: date, due: addDays(date, 1), learned: date, order: serial++ });
+    if (fresh) lastNew = date;
+    unlearned -= fresh;
+    const due = pending.filter(record => record.status !== 'mastered' && record.due <= date && !(record.status === 'known' && record.last === date))
+      .sort((a, b) => memoryPriority({ currentStatus: a.status }) - memoryPriority({ currentStatus: b.status })
+        || observationRank(a.status, a.count, a.last, yesterday) - observationRank(b.status, b.count, b.last, yesterday)
+        || a.due.localeCompare(b.due) || a.learned.localeCompare(b.learned) || a.order - b.order);
+    const already = offset === 0 ? state.days[today]?.doneReviews.length || 0 : 0;
+    for (const record of due.slice(0, Math.max(0, reviewLimit(date) - already))) {
+      record.count = record.status === 'known' && record.last === yesterday ? record.count + 1 : 1;
+      record.status = record.count >= 3 ? 'mastered' : 'known';record.last = date;record.due = addDays(date, 1);
     }
-    if (!unlearned && !heap.size) return { estimatedNewDate: numberToKey(lastNew), estimatedFinishDate: date };
+    if (!unlearned && pending.every(record => record.status === 'mastered')) return { estimatedNewDate: lastNew, estimatedFinishDate: date };
   }
-  return { estimatedNewDate: unlearned ? null : numberToKey(lastNew), estimatedFinishDate: null };
+  return { estimatedNewDate: unlearned ? null : lastNew, estimatedFinishDate: null };
 }
 
 export class Planner {
@@ -265,6 +270,10 @@ export class Planner {
     this.db = db;this.now = now;this.catalog = buildCatalog([]);this._state = null;this._progress = [];this._estimateCache = null;
   }
   get snapshot() { return copy(this._state); }
+  memoryFor(key) {
+    const canonical = this.catalog.aliases.get(key) || key;
+    return copy(this._state?.learned[canonical]?.memory || null);
+  }
   _instant() { const value = this.now();const date = value instanceof Date ? value : new Date(value);if (!Number.isFinite(date.getTime())) throw new Error('设备日期无效');return date; }
   async refresh(packs, progress = []) {
     this.catalog = buildCatalog(packs);this._progress = progress;
@@ -277,6 +286,8 @@ export class Planner {
       const state = current ? copy(current) : initialState(today, instant);
       if (!current) seedLegacy(state, this.catalog, this._progress, today);
       if (today < state.startedOn) return state;
+      reconcileLearned(state, this.catalog);
+      migrateMemories(state, this.catalog, this._progress, today);
       ensureToday(state, this.catalog, today, instant);
       if (change) change(state, state.days[today], today, instant);
       ensureToday(state, this.catalog, today, instant);
@@ -296,19 +307,36 @@ export class Planner {
       const [assigned, done] = fields[kind];
       if (!day[assigned].includes(key)) throw new Error('此条目不属于今日任务，请刷新后重试');
       if (day[done].includes(key)) return;
-      if (kind === 'new') {
-        const item = this.catalog.wordMap.get(key);if (!item) throw new Error('对应课程已移除，请刷新今日任务');
-        if (!state.learned[key]) state.learned[key] = learnedRecord(item, today);
-      } else if (kind === 'review') {
-        const record = state.learned[key];
-        if (!record || !this.catalog.wordMap.has(key)) throw new Error('复习记录已变化，请刷新今日任务');
-        if (record.lastReviewedOn === today) return;
-        const next = REVIEW_INTERVALS[record.completedIntervals.length];
-        if (next !== undefined) record.completedIntervals.push(next);
-        record.lastReviewedOn = today;record.mastered = record.completedIntervals.length === REVIEW_INTERVALS.length;record.nextDue = firstFutureDue(record, today);
-      } else if (!this.catalog.sentenceMap.has(key)) throw new Error('对应例句已变化，请刷新今日任务');
-      day[done].push(key);
+      if (kind === 'new' || kind === 'review') this._rateInState(state, day, key, 'known', today);
+      else {
+        if (!this.catalog.sentenceMap.has(key)) throw new Error('对应例句已变化，请刷新今日任务');
+        day[done].push(key);
+      }
     }, date);
+  }
+  _rateInState(state, day, key, rating, today) {
+    const canonical = this.catalog.aliases.get(key) || key;
+    const item = this.catalog.wordMap.get(canonical);
+    if (!item) throw new Error('该条目不是当前课程中的词汇或词组');
+    const record = state.learned[canonical] || learnedRecord(item, today);
+    const lastKnown = record.memory?.reviewHistory.filter(event => event.status === 'known').at(-1)?.date;
+    record.memory = applyMemoryRating(record.memory, rating, today, canonical);
+    if (rating === 'known' && lastKnown !== today && record.learnedOn < today) {
+      const next = REVIEW_INTERVALS[record.completedIntervals.length];
+      if (next !== undefined) record.completedIntervals.push(next);
+    }
+    record.lastReviewedOn = today;record.mastered = record.memory.currentStatus === 'mastered';
+    record.nextDue = record.memory.nextReviewDates[0];state.learned[canonical] = record;
+    day.memoryRatedKeys ||= [];
+    if (!day.memoryRatedKeys.includes(canonical)) day.memoryRatedKeys.push(canonical);
+    for (const [assigned, done] of [['newKeys', 'doneNew'], ['reviewKeys', 'doneReviews']]) {
+      if (rating !== 'known') day[done] = day[done].filter(ref => ref !== canonical);
+      else if (day[assigned].includes(canonical) && !day[done].includes(canonical)) day[done].push(canonical);
+    }
+  }
+  async rateWord(key, rating, date) {
+    if (!['unknown', 'vague', 'known'].includes(rating)) throw new Error('请选择不认识、有印象或认识');
+    return this._update((state, day, today) => this._rateInState(state, day, key, rating, today), date);
   }
   async setDailyNew(amount) {
     if (!DAILY_NEW_OPTIONS.includes(Number(amount))) throw new Error('每天新词量可选5、10、15、20或30个');
@@ -339,8 +367,8 @@ export class Planner {
   _view(today) {
     const state = this._state, day = state.days[today] || blankDay(today), catalog = this.catalog;
     const clockBack = today < state.startedOn;
-    const tasks = { newWords: day.newKeys.filter(key => catalog.wordMap.has(key)).map(key => ({ ...catalog.wordMap.get(key), done: day.doneNew.includes(key) })),
-      reviews: day.reviewKeys.filter(key => catalog.wordMap.has(key)).map(key => ({ ...catalog.wordMap.get(key), done: day.doneReviews.includes(key), dueOn: state.learned[key]?.nextDue, repetition: Math.min(6, (state.learned[key]?.completedIntervals.length || 0) + (day.doneReviews.includes(key) ? 0 : 1)) })),
+    const tasks = { newWords: day.newKeys.filter(key => catalog.wordMap.has(key)).map(key => ({ ...catalog.wordMap.get(key), done: day.doneNew.includes(key), memory: copy(state.learned[key]?.memory || null) })),
+      reviews: day.reviewKeys.filter(key => catalog.wordMap.has(key)).map(key => ({ ...catalog.wordMap.get(key), done: day.doneReviews.includes(key), dueOn: state.learned[key]?.nextDue, memory: copy(state.learned[key]?.memory || null), repetition: Math.min(3, (state.learned[key]?.memory?.consecutiveKnownCount || 0) + (day.doneReviews.includes(key) ? 0 : 1)) })),
       sentences: day.sentenceKeys.filter(key => catalog.sentenceMap.has(key)).map(key => ({ ...catalog.sentenceMap.get(key), done: day.doneSentences.includes(key) })),
       scenario: day.scenarioKey && catalog.scenarioMap.has(day.scenarioKey) ? { ...catalog.scenarioMap.get(day.scenarioKey), done: day.scenarioDone } : null };
     const studyDates = Object.keys(state.days).filter(date => date <= today && isStudyDay(state.days[date])).sort();
@@ -349,15 +377,21 @@ export class Planner {
     const weekStart = addDays(today, -((weekday(today) + 6) % 7));
     const weekSeconds = Object.entries(state.days).filter(([date]) => date >= weekStart && date <= today).reduce((sum, [, record]) => sum + record.seconds, 0);
     const records = catalog.words.map(item => state.learned[item.key]).filter(Boolean);
-    const estimateKey = `${today}|${state.dailyNew}|${catalog.signature}|${day.doneNew.length}|${day.doneReviews.length}|${records.map(record => `${record.enKey}:${record.learnedOn}:${record.nextDue}:${record.completedIntervals.length}:${record.mastered}`).join('|')}`;
+    const estimateKey = `${today}|${state.dailyNew}|${catalog.signature}|${day.doneNew.length}|${day.doneReviews.length}|${records.map(record => `${record.enKey}:${record.learnedOn}:${record.nextDue}:${record.memory?.currentStatus}:${record.memory?.consecutiveKnownCount}:${record.memory?.lastReviewDate}`).join('|')}`;
     if (!this._estimateCache || this._estimateCache.key !== estimateKey) this._estimateCache = { key: estimateKey, value: estimateDates(state, catalog, today) };
-    const totalDue = records.filter(record => !record.mastered && record.nextDue && record.nextDue <= today).length;
+    const totalDue = catalog.words.filter(item => !day.newKeys.includes(item.key) && memoryDue(state.learned[item.key], today)).length;
     const pendingReviews = tasks.reviews.filter(task => !task.done).length;
+    const memories = memoryStats(records, today, state.dailyNew, catalog.words.length);
+    const weekDays = Object.entries(state.days).filter(([date]) => date >= weekStart && date <= today).map(([, value]) => value);
+    memories.weekScheduled = weekDays.reduce((sum, value) => sum + value.reviewKeys.filter(key => catalog.wordMap.has(key)).length, 0);
+    memories.weekCompleted = weekDays.reduce((sum, value) => sum + value.doneReviews.filter(key => catalog.wordMap.has(key)).length, 0);
+    memories.weekPercent = memories.weekScheduled ? Math.round(memories.weekCompleted / memories.weekScheduled * 100) : 0;
+    memories.estimatedMasteryDays = this._estimateCache.value.estimatedFinishDate ? Math.max(0, daysBetween(today, this._estimateCache.value.estimatedFinishDate)) : null;
     let nextScenarioDate = null;
     if (!tasks.scenario && catalog.scenarios.length) for (let offset = 1; offset <= 7; offset += 1) if (sceneForDate(catalog, addDays(today, offset))) { nextScenarioDate = addDays(today, offset);break; }
     return { date: today, startedOn: state.startedOn, dailyNew: state.dailyNew, weekend: [0, 6].includes(weekday(today)), day: copy(day), tasks,
       remaining: { newWords: tasks.newWords.filter(task => !task.done).length, reviews: pendingReviews, sentences: tasks.sentences.filter(task => !task.done).length, scenario: tasks.scenario && !tasks.scenario.done ? 1 : 0 },
-      stats: { streak, studyDays: studyDates.length, mastered: records.filter(record => record.mastered).length, totalVocabulary: catalog.words.length, learned: records.length, weekSeconds, ...this._estimateCache.value },
+      stats: { streak, studyDays: studyDates.length, mastered: memories.mastered, totalVocabulary: catalog.words.length, learned: records.length, weekSeconds, memory: memories, ...this._estimateCache.value },
       completion: completionFor(day, catalog), review: { limit: reviewLimit(today), totalDue, deferred: Math.max(0, totalDue - pendingReviews) }, nextScenarioDate,
       notice: clockBack ? '设备日期早于计划起始日，已暂停计划写入。请先校准设备日期；已有记录保留。' : '', clockBack,
     };

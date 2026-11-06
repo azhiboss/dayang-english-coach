@@ -301,10 +301,46 @@ function plannerReferences(raw, path, max, sentence = false) {
   return values;
 }
 
+function validateMemoryRecord(raw, ref, path) {
+  keys(raw, ['wordId', 'currentStatus', 'consecutiveKnownCount', 'lastReviewDate', 'nextReviewDates', 'reviewHistory', 'masteredFrom', 'weeklyReviewCount'], path);
+  const wordId = plannerReference(raw.wordId, `${path}.wordId`);
+  if (wordId !== ref) fail(`${path}.wordId`, '必须与所属学习项引用一致');
+  const currentStatus = text(raw.currentStatus, `${path}.currentStatus`, 20, { multiline: false });
+  if (!['unknown', 'vague', 'known', 'mastered'].includes(currentStatus)) fail(`${path}.currentStatus`, '仅支持unknown、vague、known或mastered');
+  const consecutiveKnownCount = integer(raw.consecutiveKnownCount, `${path}.consecutiveKnownCount`, 0, 3);
+  const masteredFrom = text(raw.masteredFrom, `${path}.masteredFrom`, 20, { multiline: false });
+  if (!['unknown', 'vague', 'known'].includes(masteredFrom)) fail(`${path}.masteredFrom`, '仅支持unknown、vague或known来源');
+  const weeklyReviewCount = integer(raw.weeklyReviewCount, `${path}.weeklyReviewCount`, 0, 6);
+  if (currentStatus === 'mastered') {
+    const expected = { known: 2, vague: 4, unknown: 6 }[masteredFrom];
+    if (consecutiveKnownCount !== 3 || weeklyReviewCount !== expected) fail(path, '已掌握须连续认识3天，且周复习次数与来源对应为2、4或6次');
+  } else {
+    if (weeklyReviewCount !== 0) fail(`${path}.weeklyReviewCount`, '未掌握时每周固定复习次数须为0');
+    if (currentStatus === 'known' ? ![1, 2].includes(consecutiveKnownCount) : consecutiveKnownCount !== 0) fail(`${path}.consecutiveKnownCount`, '观察期计数须为1或2，负向记忆状态计数须为0');
+  }
+  const lastReviewDate = calendarDate(raw.lastReviewDate, `${path}.lastReviewDate`);
+  const nextReviewDates = array(raw.nextReviewDates, `${path}.nextReviewDates`, 60, 1).map((value, index) => {
+    const date = calendarDate(value, `${path}.nextReviewDates[${index}]`);
+    if (index && raw.nextReviewDates[index - 1] >= date) fail(`${path}.nextReviewDates`, '下次复习日期须为唯一升序值');
+    return date;
+  });
+  // Several real actions can occur on one date. Preserve that history instead
+  // of treating repeated dates as either duplicate days or extra streak days.
+  const reviewHistory = array(raw.reviewHistory, `${path}.reviewHistory`, 10000).map((entry, index) => {
+    const itemPath = `${path}.reviewHistory[${index}]`;
+    keys(entry, ['date', 'status'], itemPath);
+    const status = text(entry.status, `${itemPath}.status`, 20, { multiline: false });
+    if (!['unknown', 'vague', 'known'].includes(status)) fail(`${itemPath}.status`, '历史按钮记录仅支持unknown、vague或known');
+    return { date: calendarDate(entry.date, `${itemPath}.date`), status };
+  });
+  return { wordId, currentStatus, consecutiveKnownCount, lastReviewDate, nextReviewDates, reviewHistory, masteredFrom, weeklyReviewCount };
+}
+
 export function validatePlannerState(raw, path = '学习计划') {
   safeTree(raw, path);
-  keys(raw, ['schemaVersion', 'startedOn', 'dailyNew', 'learned', 'days', 'updatedAt'], path);
+  keys(raw, ['schemaVersion', 'memoryVersion', 'startedOn', 'dailyNew', 'learned', 'days', 'updatedAt'], path);
   if (raw.schemaVersion !== 1) fail(`${path}.schemaVersion`, '不支持此学习计划版本');
+  if (own(raw, 'memoryVersion') && raw.memoryVersion !== 1) fail(`${path}.memoryVersion`, '不支持此记忆记录版本');
   if (![5, 10, 15, 20, 30].includes(raw.dailyNew)) fail(`${path}.dailyNew`, '每日新学量只支持5、10、15、20或30');
   const startedOn = calendarDate(raw.startedOn, `${path}.startedOn`);
   const updatedAt = timestamp(raw.updatedAt, `${path}.updatedAt`);
@@ -319,7 +355,7 @@ export function validatePlannerState(raw, path = '学习计划') {
   for (const [ref, entry] of learnedEntries) {
     const itemPath = `${path}.learned[${ref}]`;
     plannerReference(ref, itemPath);
-    keys(entry, ['enKey', 'learnedOn', 'lastReviewedOn', 'nextDue', 'completedIntervals', 'mastered', 'source'], itemPath);
+    keys(entry, ['enKey', 'learnedOn', 'lastReviewedOn', 'nextDue', 'completedIntervals', 'mastered', 'source', 'memory'], itemPath);
     if (typeof entry.mastered !== 'boolean') fail(`${itemPath}.mastered`, '必须是布尔值');
     if (!['planner', 'legacy'].includes(entry.source)) fail(`${itemPath}.source`, '只支持planner或legacy来源');
     const completedIntervals = array(entry.completedIntervals, `${itemPath}.completedIntervals`, 6).map((value, index) => {
@@ -333,12 +369,17 @@ export function validatePlannerState(raw, path = '学习计划') {
       nextDue: entry.nextDue === null ? null : calendarDate(entry.nextDue, `${itemPath}.nextDue`),
       completedIntervals, mastered: entry.mastered, source: entry.source,
     };
+    if (own(entry, 'memory')) {
+      const memory = validateMemoryRecord(entry.memory, ref, `${itemPath}.memory`);
+      if (entry.mastered !== (memory.currentStatus === 'mastered')) fail(`${itemPath}.mastered`, '须与三级记忆的掌握状态一致');
+      learned[ref].memory = memory;
+    }
   }
   const days = {};
   for (const [date, entry] of dayEntries) {
     const dayPath = `${path}.days[${date}]`;
     calendarDate(date, `${dayPath}.key`);
-    keys(entry, ['date', 'newKeys', 'reviewKeys', 'sentenceKeys', 'scenarioKey', 'doneNew', 'doneReviews', 'doneSentences', 'scenarioDone', 'seconds', 'celebrated', 'completedAt'], dayPath);
+    keys(entry, ['date', 'newKeys', 'reviewKeys', 'sentenceKeys', 'scenarioKey', 'doneNew', 'doneReviews', 'doneSentences', 'scenarioDone', 'seconds', 'celebrated', 'completedAt', 'memoryRatedKeys'], dayPath);
     if (entry.date !== date) fail(`${dayPath}.date`, '日期必须与记录键一致');
     const newKeys = plannerReferences(entry.newKeys, `${dayPath}.newKeys`, 30);
     const reviewKeys = plannerReferences(entry.reviewKeys, `${dayPath}.reviewKeys`, 75);
@@ -360,8 +401,11 @@ export function validatePlannerState(raw, path = '学习计划') {
       celebrated: entry.celebrated,
       completedAt: entry.completedAt === null ? null : timestamp(entry.completedAt, `${dayPath}.completedAt`),
     };
+    if (own(entry, 'memoryRatedKeys')) days[date].memoryRatedKeys = plannerReferences(entry.memoryRatedKeys, `${dayPath}.memoryRatedKeys`, 10000);
   }
   const state = { schemaVersion: 1, startedOn, dailyNew: raw.dailyNew, learned, days, updatedAt };
+  // Keep absence meaningful so old v3 snapshots still trigger one migration.
+  if (own(raw, 'memoryVersion')) state.memoryVersion = 1;
   if (new TextEncoder().encode(JSON.stringify(state)).byteLength > LIMITS.fileBytes) fail(path, '学习计划记录不能超过5 MiB，请先导出备份后重置计划');
   return state;
 }

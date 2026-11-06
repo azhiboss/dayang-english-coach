@@ -72,7 +72,12 @@
             <h3 id="today-session-title" lang="en-US"></h3><p id="today-session-source" class="supporting-text"></p>
             <details id="today-session-meaning"><summary>显示释义与提示</summary><p id="today-session-zh"></p></details>
             <div class="action-line"><button id="today-session-speak" class="button button-secondary" type="button">🔊 发音</button><button id="today-session-open" class="button button-secondary" type="button">展开学习</button><button id="today-session-complete" class="button" type="button">✅ 完成，下一项</button></div>
-            <p class="supporting-text">先听、回忆，再开口说一遍，完成后再打勾。</p>
+            <div id="today-memory-actions" class="memory-actions" role="group" aria-label="今日词汇记忆程度" hidden>
+              <button id="today-memory-unknown" class="button button-secondary memory-rating rating-unknown" type="button" aria-pressed="false">🤔 不认识</button>
+              <button id="today-memory-vague" class="button button-secondary memory-rating rating-vague" type="button" aria-pressed="false">🧐 有印象</button>
+              <button id="today-memory-known" class="button button-secondary memory-rating rating-known" type="button" aria-pressed="false">✅ 认识</button>
+            </div>
+            <p class="supporting-text">先听、回忆，再开口说一遍。词汇请如实选择记忆程度，其他任务练完后再打勾。</p>
           </article>
 
           <section class="today-agenda" aria-label="今日任务明细">
@@ -83,7 +88,7 @@
             <details id="agenda-scenario" class="agenda-group"><summary><span>和客户练一轮</span><span id="agenda-scenario-count" class="count-badge">0</span></summary><p id="agenda-scenario-note" class="supporting-text"></p><div id="agenda-scenario-list"></div></details>
           </section>
 
-          <section class="planner-statistics" aria-labelledby="planner-statistics-title"><h3 id="planner-statistics-title">你的学习积累</h3><dl class="planner-stat-grid"><div><dt>累计学习天数</dt><dd id="planner-study-days">0 天</dd></div><div><dt>累计掌握词汇</dt><dd id="planner-mastered">0 个</dd></div><div><dt>本周学习时长</dt><dd id="planner-week-time">0 分钟</dd></div><div><dt>已学新词</dt><dd id="planner-learned">0 个</dd></div></dl><div class="planner-estimate"><span>预计完成词汇课程及间隔复习</span><strong id="planner-finish-date">计算中</strong><p id="planner-estimate-note" class="supporting-text"></p></div><p class="supporting-text">掌握数包含计划开始前已标记掌握的词，以及完成全部六次间隔复习的词。前台学习时计时，闲置90秒或切到后台会暂停。</p></section>
+          <section class="planner-statistics" aria-labelledby="planner-statistics-title"><h3 id="planner-statistics-title">你的学习积累</h3><dl class="planner-stat-grid"><div><dt>累计学习天数</dt><dd id="planner-study-days">0 天</dd></div><div><dt>累计掌握词汇</dt><dd id="planner-mastered">0 个</dd></div><div><dt>本周学习时长</dt><dd id="planner-week-time">0 分钟</dd></div><div><dt>已学新词</dt><dd id="planner-learned">0 个</dd></div></dl><div class="planner-estimate"><span>预计全部词汇进入已掌握</span><strong id="planner-finish-date">计算中</strong><p id="planner-estimate-note" class="supporting-text"></p></div><p class="supporting-text">连续三个自然日选择“认识”才计为已掌握；掌握后仍会按来源安排每周复习。前台学习时计时，闲置90秒或切到后台会暂停。</p></section>
 
           <details id="planner-options" class="planner-options"><summary>调整学习计划</summary><label for="planner-daily-new">每天的新词数量</label><select id="planner-daily-new"><option value="5">5 个 · 轻量开始</option><option value="10" selected>10 个 · 日常节奏</option><option value="15">15 个 · 稳步提升</option><option value="20">20 个 · 加强练习</option><option value="30">30 个 · 强化训练</option></select><p class="supporting-text">未完成的新词优先延续，再补足当日额度；已完成的任务保留。调整不会改变已学词的复习日期。</p><button id="reset-planner" class="button button-secondary" type="button">重置学习计划</button><p class="supporting-text">从今天重新排课，清除计划、打卡和计划用时；原有课程、掌握标记、收藏与生词本保留。跨设备可通过“数据”页导出、恢复JSON备份。</p></details>
         </section>
@@ -93,7 +98,7 @@
           <div id="planner-word-link" class="planner-linked-task" hidden><p id="planner-word-note">这是今日计划中的词汇。</p><button id="complete-planned-word" class="button button-secondary" type="button">✅ 学习完成，返回今日任务</button></div>
           <div class="filters">
             <label>学习模块<select id="module-filter"></select></label>
-            <label>学习范围<select id="status-filter"><option value="all">全部内容</option><option value="new">还未掌握</option><option value="review">待复习</option><option value="mastered">已掌握</option><option value="favorite">我的收藏</option></select></label>
+            <label>学习范围<select id="status-filter"><option value="all">全部内容</option><option value="new">还未掌握</option><option value="review">待复习</option><option value="unknown">不认识 · 加强复习</option><option value="vague">有印象 · 继续巩固</option><option value="known">认识 · 观察期</option><option value="mastered">已掌握</option><option value="favorite">我的收藏</option></select></label>
           </div>
           <label class="sr-only" for="course-search">搜索词汇、同义表达或中文意思</label><input id="course-search" type="search" placeholder="搜索词汇、客户表达或中文意思…" autocomplete="off">
           <div class="learning-layout">
@@ -101,6 +106,8 @@
               <article id="learning-card" class="learning-card">
                 <div class="card-meta"><span id="item-module" class="module-label"></span><span id="item-position"></span></div>
                 <span id="item-role" class="role-label" hidden></span>
+                <span id="memory-status" class="memory-status" hidden></span>
+                <p id="memory-detail" class="supporting-text memory-detail" hidden></p>
                 <h3 id="item-en" lang="en-US" class="english-display"></h3>
                 <p id="item-phonetic" class="phonetic" lang="en" hidden></p>
                 <div class="card-tools">
@@ -112,10 +119,14 @@
               </article>
               <div id="learning-empty" class="empty-state" hidden><h3>这个范围暂时没有内容</h3><p>试试其他模块，或先把句子标记为待复习、收藏。</p><button id="reset-filters" class="button" type="button">查看全部内容</button></div>
               <div class="mark-actions" id="mark-actions">
-                <button id="mark-mastered" class="button button-secondary" type="button" aria-pressed="false">✅ 已掌握</button>
-                <button id="mark-review" class="button button-secondary" type="button" aria-pressed="false">🔁 待复习</button>
-                <button id="mark-favorite" class="button button-secondary" type="button" aria-pressed="false">⭐ 收藏</button>
+                <div id="memory-actions" class="memory-actions" role="group" aria-label="选择当前词汇的记忆程度">
+                  <button id="memory-unknown" class="button button-secondary memory-rating rating-unknown" type="button" aria-pressed="false">🤔 不认识</button>
+                  <button id="memory-vague" class="button button-secondary memory-rating rating-vague" type="button" aria-pressed="false">🧐 有印象</button>
+                  <button id="memory-known" class="button button-secondary memory-rating rating-known" type="button" aria-pressed="false">✅ 认识</button>
+                </div>
+                <div class="memory-secondary-actions"><button id="mark-favorite" class="button button-secondary" type="button" aria-pressed="false">⭐ 收藏</button><span class="supporting-text">收藏不会改变记忆状态</span></div>
               </div>
+              <p id="memory-feedback" class="memory-feedback" role="status" aria-live="polite" hidden></p>
               <div class="card-navigation" id="card-navigation"><button id="previous-item" class="button button-secondary" type="button">上一条</button><button id="random-item" class="button button-quiet" type="button">随机一条</button><button id="next-item" class="button button-secondary" type="button">下一条</button></div>
             </div>
             <aside class="practice-aside">
@@ -175,12 +186,26 @@
         <section id="panel-data" class="view-panel" role="tabpanel" aria-labelledby="tab-data" hidden>
           <div class="section-heading"><div><p class="section-caption">你的学习记录，留在本机</p><h2>课程与学习资料。</h2></div></div>
           <p class="supporting-text">课程、进度、收藏与弱项保存在当前浏览器。换设备或清理网站数据前，请先导出备份。语音识别由浏览器或系统服务处理。</p>
+          <section class="memory-statistics" aria-labelledby="memory-statistics-title">
+            <div class="subsection-heading"><h3 id="memory-statistics-title">词汇记忆进度</h3><span class="section-caption">按相同英文去重</span></div>
+            <dl class="memory-state-grid">
+              <div class="memory-state-count is-unknown"><dt>不认识</dt><dd id="memory-count-unknown">0 个</dd></div>
+              <div class="memory-state-count is-vague"><dt>有印象</dt><dd id="memory-count-vague">0 个</dd></div>
+              <div class="memory-state-count is-known"><dt>认识 · 观察期</dt><dd id="memory-count-known">0 个</dd></div>
+              <div class="memory-state-count is-mastered"><dt>已掌握</dt><dd id="memory-count-mastered">0 个</dd></div>
+            </dl>
+            <dl class="memory-results-grid">
+              <div><dt>本周复习完成率</dt><dd id="memory-week-rate">尚无复习任务</dd></div>
+              <div><dt>预计全部掌握所需时间</dt><dd id="memory-estimate-days">计算中</dd></div>
+            </dl>
+            <p id="memory-stats-note" class="supporting-text">统计本机已装课程中的词汇。预计时间以之后每天按计划完成并连续选择“认识”为条件，会随实际学习更新。</p>
+          </section>
           <section class="data-section"><div class="subsection-heading"><h3>备份与外观</h3><label class="theme-label">外观<select id="theme-select"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div><div class="action-line"><button id="export-backup" class="button" type="button">导出备份 JSON</button><button id="export-course" class="button button-secondary" type="button">导出当前课程</button></div><p class="supporting-text">备份包含所有课程、练习进度、收藏、弱项、生词本与设置。没有账号，也不会自动同步。</p></section>
           <section class="data-section"><h3>导入课程或备份</h3><label class="file-picker" for="import-file">选择 JSON 文件<input id="import-file" type="file" accept=".json,application/json"></label><details class="paste-details"><summary>或粘贴 JSON 内容</summary><label class="sr-only" for="import-text">课程或备份JSON</label><textarea id="import-text" rows="6" maxlength="52428800" placeholder='{"pack_name":"我的课程","version":"2026.11","modules":[…]}' spellcheck="false"></textarea><button id="preview-pasted" class="button button-secondary" type="button">检查粘贴内容</button></details><p class="supporting-text">课程最大5 MiB，完整备份最大50 MiB。先检查格式并预览，再确认写入。</p><div id="import-error" class="notice notice-error" role="alert" hidden></div><div id="import-preview" class="import-preview" hidden><h4 id="import-preview-title"></h4><p id="import-preview-description"></p><p id="import-preview-policy" class="supporting-text"></p><div class="action-line"><button id="confirm-import" class="button" type="button">确认导入</button><button id="cancel-import" class="button button-quiet" type="button">取消</button></div></div><p class="supporting-text resource-links"><a href="./demo.json" download="dayang-demo.json">下载示例课程</a><a href="./courses_expanded.json" download>下载扩充词汇与例句</a><a href="./course.schema.json" download>查看课程 JSON Schema</a></p></section>
           <p class="supporting-text resource-links"><a href="./dayang_unified_courses.json" download>下载图册对照完整课程</a><a href="./CHANGELOG.md">查看图册对照变更日志</a></p>
           <section class="data-section"><h3>已装入的课程</h3><div id="pack-list" class="pack-list"></div></section>
           <section id="weak-section" class="data-section"><div class="subsection-heading"><h3>弱项词库 <span id="weak-count" class="count-badge">0</span></h3></div><label class="sr-only" for="weak-search">搜索弱项词</label><input id="weak-search" type="search" placeholder="搜索需要多练一次的词…" autocomplete="off"><p id="weak-description" class="supporting-text">跟读中错读或漏读的目标词会自动记在这里。</p><div id="weak-list" class="weak-list"></div><button id="more-weak" class="button button-secondary" type="button" hidden>显示更多弱项</button></section>
-          <p class="supporting-text app-footnote">Dayang English Coach · 2026.11<br><a href="./README.md">使用说明与已知限制</a></p>
+          <p class="supporting-text app-footnote">Dayang English Coach · 2026.11.11<br><a href="./README.md">使用说明与已知限制</a></p>
         </section>
       </main>
 

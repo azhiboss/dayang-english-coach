@@ -2,7 +2,7 @@ import { DB } from './db.js';
 import { TTS, DEFAULT_RATE } from './tts.js';
 import { SpeechInput, compareWords } from './asr.js';
 import { validatePack, expandedToPack, parseImport, readFileText, downloadJSON } from './import.js';
-import { Planner, dateKey } from './planner.js';
+import { Planner, dateKey, daysBetween } from './planner.js';
 
 const $ = id => document.getElementById(id);
 const speech = new SpeechInput();
@@ -19,7 +19,7 @@ const state = {
   importGeneration: 0, importing: false, weakLimit: 40,
   offlineReady: false, waitingWorker: null, updateRequested: false,
   expanded: new Map(), dictionary: new Map(), vocabulary: new Map(), vocabLimit: 40,
-  lookup: null, expandedError: '', unifiedError: '', unifiedAdded: false,
+  lookup: null, expandedError: '', unifiedError: '', unifiedAdded: false, memoryBusy: false,
   plan: null, plannerReady: false, planSession: null, plannedWord: null, plannedPractice: null, plannedScenario: null,
 };
 // Serialize attempt increments for the same learning item across both views.
@@ -49,6 +49,14 @@ function progressFor(item) {
   return state.progress.get(key(item.packId, item.id)) || { status: 'new', favorite: false, attempts: 0, lastScore: null };
 }
 function currentItem() { return state.filtered[state.index] || null; }
+function wordRef(item) { return item ? `${item.packId}/${item.id || item.itemId}` : ''; }
+function isMemoryWord(item) { return Boolean(item && state.plannerReady && planner.catalog.aliases.has(wordRef(item))); }
+function memoryFor(item) { return isMemoryWord(item) ? planner.memoryFor(wordRef(item)) : null; }
+function learningStatus(item) { return isMemoryWord(item) ? memoryFor(item)?.currentStatus || 'new' : progressFor(item).status; }
+function hiddenKnownToday(item) {
+  const memory = memoryFor(item);
+  return memory?.lastReviewDate === dateKey() && ['known', 'mastered'].includes(memory.currentStatus);
+}
 function errorMessage(error) { return error instanceof Error ? error.message : String(error); }
 let toastTimer;
 function toast(message) {
@@ -148,8 +156,8 @@ function renderPackControls() {
 function renderSummary() {
   const items = flatten(currentPack());
   const records = items.map(progressFor);
-  $('mastered-count').textContent = records.filter(p => p.status === 'mastered').length;
-  $('review-count').textContent = records.filter(p => p.status === 'review').length;
+  $('mastered-count').textContent = items.filter(item => learningStatus(item) === 'mastered').length;
+  $('review-count').textContent = items.filter(item => ['unknown', 'vague', 'known', 'review'].includes(learningStatus(item))).length;
   $('favorite-count').textContent = records.filter(p => p.favorite).length;
   const today = new Date().toDateString();
   const practiced = [...state.progress.values()].filter(p => p.lastPracticedAt && new Date(p.lastPracticedAt).toDateString() === today).length;
@@ -163,9 +171,12 @@ function renderLearn(preferredId) {
     if (query && !`${item.en} ${item.zh} ${examplesFor(item).map(example => `${example.en} ${example.zh}`).join(' ')}`.toLowerCase().includes(query)) return false;
     if (state.moduleId !== 'all' && item.moduleId !== state.moduleId) return false;
     const p = progressFor(item);
+    const status = learningStatus(item);
     if (state.filter === 'favorite') return p.favorite;
-    if (state.filter === 'new') return p.status !== 'mastered';
-    if (state.filter !== 'all') return p.status === state.filter;
+    if (['known', 'mastered', 'unknown', 'vague'].includes(state.filter)) return status === state.filter;
+    if (!query && hiddenKnownToday(item)) return false;
+    if (state.filter === 'new') return status !== 'mastered';
+    if (state.filter === 'review') return ['unknown', 'vague', 'known', 'review'].includes(status);
     return true;
   });
   const preferredIndex = preferredId ? state.filtered.findIndex(item => item.id === preferredId) : -1;
@@ -179,7 +190,8 @@ function renderLearn(preferredId) {
   $('learning-empty').hidden = !empty;
   $('mark-actions').hidden = empty;
   $('card-navigation').hidden = empty;
-  if (!item) return;
+  $('memory-feedback').hidden = true;
+  if (!item) { renderMemoryControls(null);return; }
   const p = progressFor(item);
   $('item-module').textContent = item.moduleName;
   $('item-position').textContent = `${state.index + 1} / ${state.filtered.length}`;
@@ -197,8 +209,7 @@ function renderLearn(preferredId) {
   $('item-example').textContent = item.example || '';
   $('item-example-zh').textContent = item.example_zh || '';
   renderExamples(item);
-  $('mark-mastered').setAttribute('aria-pressed', String(p.status === 'mastered'));
-  $('mark-review').setAttribute('aria-pressed', String(p.status === 'review'));
+  renderMemoryControls(item);
   $('mark-favorite').setAttribute('aria-pressed', String(p.favorite));
   $('previous-item').disabled = state.index === 0;
   $('next-item').disabled = state.index >= state.filtered.length - 1;
@@ -231,17 +242,86 @@ async function markItem(action) {
   const item = currentItem();
   if (!item) return;
   const previous = progressFor(item);
-  const patch = action === 'favorite'
-    ? { favorite: !previous.favorite }
-    : { status: previous.status === action ? 'new' : action };
-  const controls = ['mark-mastered', 'mark-review', 'mark-favorite'].map($);
+  const patch = { favorite: !previous.favorite };
+  const controls = [$('mark-favorite')];
   controls.forEach(button => { button.disabled = true; });
   try {
     const saved = await DB.saveProgress(item.packId, item.id, patch);
     state.progress.set(key(item.packId, item.id), saved);
     renderSummary(); renderLearn(currentItem()?.id);
-    toast(action === 'favorite' ? (saved.favorite ? '已加入收藏' : '已取消收藏') : saved.status === 'new' ? '已还原为未标记' : saved.status === 'mastered' ? '已标记掌握' : '已加入复习队列');
+    toast(saved.favorite ? '已加入收藏' : '已取消收藏');
   } finally { controls.forEach(button => { button.disabled = false; }); }
+}
+
+function renderMemoryControls(item) {
+  const supported = isMemoryWord(item), memory = memoryFor(item);
+  $('memory-actions').hidden = !supported;
+  for (const rating of ['unknown', 'vague', 'known']) {
+    const button = $(`memory-${rating}`);
+    button.hidden = !supported;
+    button.disabled = state.memoryBusy || Boolean(state.plan?.clockBack);
+    button.setAttribute('aria-pressed', String(memory?.currentStatus === rating || rating === 'known' && memory?.currentStatus === 'mastered'));
+  }
+  $('complete-planned-word').hidden = true;
+  $('memory-status').hidden = !supported;
+  $('memory-detail').hidden = !item;
+  if (!supported) {
+    $('memory-detail').textContent = '这是一条句子或话术，可点“去跟读”练习；三级记忆用于词汇与词组。';
+    return;
+  }
+  const status = memory?.currentStatus || 'new';
+  const interrupted = status === 'known' && daysBetween(memory.lastReviewDate, dateKey()) > 1;
+  const label = { new: '尚未开始记忆', unknown: '🔴 加强复习', vague: '🟠 有印象 · 常规复习', known: interrupted ? '🔄 观察待重新开始' : `🔄 观察期第${memory?.consecutiveKnownCount || 1}天`, mastered: '🟢 已掌握' }[status];
+  $('memory-status').textContent = label;
+  $('memory-status').dataset.status = status;
+  $('memory-detail').textContent = !memory ? '请按现在的记忆情况选择，连续3个日期认识后进入掌握。'
+    : status === 'mastered' ? `每周目标${memory.weeklyReviewCount}次 · ${memory.nextReviewDates[0] <= dateKey() ? '到期' : '下次'}：${memory.nextReviewDates[0] || '待安排'}`
+      : interrupted ? '中间有日期未复习，下次认识从第1天重新观察。'
+        : ['unknown', 'vague'].includes(status) ? '今天继续练习；再次选择认识后从观察第1天开始。'
+          : memory.lastReviewDate === dateKey() ? `今天已认识，明天再复习 · 下次：${memory.nextReviewDates[0] || '明天'}`
+            : `今天请复习，确认是否连续第${memory.consecutiveKnownCount + 1}天认识。`;
+}
+
+function renderMemoryStats() {
+  const memory = state.plan?.stats.memory;
+  if (!memory) return;
+  for (const status of ['unknown', 'vague', 'known', 'mastered']) $(`memory-count-${status}`).textContent = `${memory[status]} 个`;
+  $('memory-week-rate').textContent = `${memory.weekCompleted} / ${memory.weekScheduled} · ${memory.weekPercent}%`;
+  $('memory-estimate-days').textContent = memory.estimatedMasteryDays == null ? '当前条件下暂无法估算' : memory.estimatedMasteryDays === 0 ? '当前词汇已掌握' : `约 ${memory.estimatedMasteryDays} 天`;
+  $('memory-stats-note').textContent = '同一英文跨课程合并统计，尚未开始的词不计入四类。完成率统计本周截至今天已安排的复习。预估假定以后每天都选认识并完成安排；每周2／4／6次为巩固目标，超出每天30个的部分顺延。';
+}
+
+async function rateStudyWord(item, rating, { context = null, date = dateKey(), fromToday = false, button = null } = {}) {
+  if (state.memoryBusy) return;
+  if (state.importing) throw new Error('正在导入，请完成后再记录记忆状态');
+  if (!isMemoryWord(item)) throw new Error('这是一条句子或话术，请使用跟读练习');
+  if (date !== dateKey()) { await refreshPlan();throw new Error('日期已变化，请重新选择今天的任务'); }
+  state.memoryBusy = true;
+  for (const prefix of ['memory', 'today-memory']) for (const status of ['unknown', 'vague', 'known']) $(`${prefix}-${status}`).disabled = true;
+  button?.classList.add('is-rating');
+  setTimeout(() => button?.classList.remove('is-rating'), 450);
+  try {
+    await queuePlanner(() => planner.rateWord(wordRef(item), rating, date));
+    const memory = memoryFor(item);
+    try {
+      await queuePlannerWrite(async () => {
+        const record = await DB.saveProgress(item.packId, item.id || item.itemId, { status: memory.currentStatus === 'mastered' ? 'mastered' : 'review' });
+        state.progress.set(key(item.packId, item.id || item.itemId), record);
+      });
+    } catch (error) { toast(`记忆状态已保存，学习卡标记未同步：${errorMessage(error)}`); }
+    renderSummary();renderLearn(currentItem()?.id);
+    const message = rating === 'unknown' ? '没关系，多见面几次就熟了' : rating === 'vague' ? '继续加油，再记牢一些' : memory.currentStatus === 'mastered' ? `连续3天认识，已掌握！以后每周复习${memory.weeklyReviewCount}次` : '好的，明天再来复习你';
+    $('memory-feedback').textContent = `${item.en}：${message}`;$('memory-feedback').hidden = false;
+    toast(message);
+    if (rating === 'known' && (fromToday || context)) {
+      state.plannedWord = null;$('planner-word-link').hidden = true;
+      if (context) switchView('today');
+      if (state.plan.completion.allDone) { state.planSession = null;renderPlanSession(); }
+      else startTodaySession();
+    }
+  } finally {
+    state.memoryBusy = false;renderMemoryControls(currentItem());renderPlanSession();
+  }
 }
 function moveItem(direction) {
   abortAudio();
@@ -725,7 +805,8 @@ function wireEvents() {
   bind('speak-example','click',() => speakText(currentItem()?.example || ''));
   bind('stop-speech','click',() => TTS.cancel());
   bind('previous-item','click',() => moveItem(-1));bind('next-item','click',() => moveItem(1));bind('random-item','click',() => moveItem('random'));
-  bind('mark-mastered','click',() => markItem('mastered'));bind('mark-review','click',() => markItem('review'));bind('mark-favorite','click',() => markItem('favorite'));
+  for (const rating of ['unknown', 'vague', 'known']) bind(`memory-${rating}`, 'click', event => rateStudyWord(currentItem(), rating, { context: state.plannedWord, button: event.currentTarget }));
+  bind('mark-favorite','click',() => markItem('favorite'));
   const applyFilter = filter => { state.filter = filter;state.index = 0;state.reveal = false;$('status-filter').value = filter;renderLearn();switchView('learn'); };
   bind('summary-mastered','click',() => applyFilter('mastered'));bind('summary-review','click',() => applyFilter('review'));bind('summary-favorite','click',() => applyFilter('favorite'));
   bind('reset-filters','click',() => { state.moduleId = 'all';$('course-search').value = '';$('module-filter').value = 'all';applyFilter('all'); });
@@ -1085,7 +1166,7 @@ function queuePlanner(action, { statsOnly = false } = {}) {
     $('planner-error').hidden = !view.notice;
     if (view.notice) $('planner-error').textContent = view.notice;
     if (statsOnly && previousDate === view.date) renderPlannerStats();
-    else renderPlanner();
+    else { renderPlanner();renderSummary();renderLearn(currentItem()?.id); }
     if (view.completion.shouldCelebrate && !view.clockBack && lastCelebration !== view.date) {
       lastCelebration = view.date;
       const panel = $('planner-celebration');
@@ -1132,6 +1213,7 @@ function renderPlannerStats() {
   $('planner-estimate-note').textContent = plan.stats.estimatedNewDate
     ? `按每天${plan.dailyNew}个新词、如期完成复习估算；新词预计${readableDate(plan.stats.estimatedNewDate)}学完。短句和情景可持续训练，计划会随进度调整。`
     : '计划会自动汇总本机已装入的课程；新词去重，例句用作跟读。';
+  renderMemoryStats();
 }
 function renderAgenda(kind, tasks) {
   const list = $(`agenda-${kind}-list`);
@@ -1149,7 +1231,13 @@ function renderAgenda(kind, tasks) {
     row.append(title, node('p', 'supporting-text', kind === 'scenario' ? `完成一次${sceneInfo[task.scene]?.title || '客户沟通'} · ${task.rounds}轮` : `${source?.pack_name || ''} · ${task.moduleName || ''}${kind === 'review' ? ` · 第${task.repetition}次复习` : ''}`));
     const tools = node('div', 'action-line');
     const actions = kind === 'scenario' ? [['open', task.done ? '再练一次' : '开始对练']] : [['speak', '🔊 发音'], ['open', kind === 'sentence' ? '去跟读' : '展开学习']];
-    actions.push(['complete', task.done ? '✓ 已完成' : '✅ 完成']);
+    if (kind === 'sentence' || kind === 'scenario') actions.push(['complete', task.done ? '✓ 已完成' : '✅ 完成']);
+    else if (task.done) actions.push(['complete', '✓ 今天已认识']);
+    if (kind === 'new' || kind === 'review') {
+      const memory = memoryFor(task);
+      const status = memory?.currentStatus;
+      row.append(node('span', 'memory-state-caption', status === 'unknown' ? '🔴 不认识 · 优先加强' : status === 'vague' ? '🟠 有印象 · 继续巩固' : status === 'mastered' ? `🟢 已掌握 · 每周${memory.weeklyReviewCount}次` : status === 'known' ? `🔄 观察期第${memory.consecutiveKnownCount}天` : '请选择三级记忆状态'));
+    }
     for (const [action, label] of actions) {
       const button = node('button', 'button button-secondary', label);
       button.type = 'button';button.dataset.planAction = action;button.dataset.planKind = kind;button.dataset.planKey = task.key;button.dataset.planDate = state.plan.date;
@@ -1177,7 +1265,7 @@ function renderPlanner() {
   const start = $('start-today');start.disabled = plan.clockBack || !plan.completion.total;
   start.replaceChildren(document.createTextNode(plan.completion.allDone ? '今日已完成 · 自由学习' : plan.completion.done ? '继续今日学习' : '开始今日学习'), node('span', '', '→'));
   $('planner-carry-note').textContent = plan.review.deferred ? `另有${plan.review.deferred}个到期词顺延，明天会优先安排。未完成任务会自动接续。` : '复习先行，再学新词；没完成的任务，下次打开会接着安排。';
-  $('agenda-review-note').textContent = `新学后第1、2、4、7、15、30天复习；今天上限${plan.review.limit}个${plan.weekend ? '，周末减半取整' : ''}。`;
+  $('agenda-review-note').textContent = `不认识优先，其次有印象、观察期；今天最多${plan.review.limit}个，超额顺延。连续3个日期认识后掌握，按来源每周复习2／4／6次。`;
   $('agenda-scenario-note').textContent = plan.tasks.scenario ? `本次安排：${sceneInfo[plan.tasks.scenario.scene]?.title || '客户沟通'}。周二、周四、周六安排，漏练时优先接续一场。` : plan.nextScenarioDate ? `下一次安排在${readableDate(plan.nextScenarioDate, true)}。` : '导入含展会、谈判或客诉情景的课程后，会自动安排。';
   renderAgenda('review', plan.tasks.reviews);renderAgenda('new', plan.tasks.newWords);renderAgenda('sentence', plan.tasks.sentences);renderAgenda('scenario', plan.tasks.scenario ? [plan.tasks.scenario] : []);
   $('planner-daily-new').value = String(plan.dailyNew);
@@ -1190,7 +1278,15 @@ function renderPlanSession() {
   const context = state.planSession;
   const task = context && context.date === state.plan?.date ? planTask(context.kind, context.key) : null;
   $('today-session').hidden = !task;
+  $('today-memory-actions').hidden = !task || !['new', 'review'].includes(context.kind);
   if (!task) { state.planSession = null;return; }
+  const isWord = ['new', 'review'].includes(context.kind);
+  $('today-session-complete').hidden = isWord;
+  for (const rating of ['unknown', 'vague', 'known']) {
+    $(`today-memory-${rating}`).disabled = state.memoryBusy || task.done || state.plan.clockBack;
+    const memory = isWord ? memoryFor(task) : null;
+    $(`today-memory-${rating}`).setAttribute('aria-pressed', String(memory?.currentStatus === rating || rating === 'known' && memory?.currentStatus === 'mastered'));
+  }
   $('today-session-type').textContent = PLAN_LABELS[context.kind];
   $('today-session-title').textContent = context.kind === 'scenario' ? task.title : task.en;
   $('today-session-source').textContent = context.kind === 'scenario' ? `${task.rounds}轮 · 可语音回答或用文本模式` : `${task.moduleName || ''}${context.kind === 'review' ? ` · 第${task.repetition}次复习` : ''}`;
@@ -1215,9 +1311,8 @@ async function completePlannedTask(kind, taskKey, scheduledDate = state.plan?.da
   const result = await queuePlanner(() => planner.complete(kind, taskKey, scheduledDate));
   if ((kind === 'new' || kind === 'review') && task.packId && task.itemId) {
     try {
-      const existing = await DB.getProgress(task.packId, task.itemId);
-      const learned = planner.snapshot?.learned[taskKey];
-      const record = await DB.saveProgress(task.packId, task.itemId, { status: existing?.status === 'mastered' || learned?.mastered ? 'mastered' : 'review' });
+      const memory = planner.memoryFor(taskKey);
+      const record = await DB.saveProgress(task.packId, task.itemId, { status: memory?.currentStatus === 'mastered' ? 'mastered' : 'review' });
       state.progress.set(key(task.packId, task.itemId), record);renderSummary();renderLearn(currentItem()?.id);
     } catch (error) { toast(`计划完成情况已保存，学习卡标记未同步：${errorMessage(error)}`); }
   }
@@ -1241,7 +1336,7 @@ async function openPlannedTask(kind, taskKey) {
     state.packId = task.packId;state.moduleId = 'all';state.filter = 'all';state.index = 0;state.reveal = true;
     $('course-search').value = '';renderPackControls();renderSummary();renderLearn(task.itemId);
     state.plannedWord = context;$('planner-word-link').hidden = false;
-    $('planner-word-note').textContent = `${PLAN_LABELS[kind]}：${task.en}。完成后返回今日任务，${kind === 'new' ? '系统会自动安排后续复习。' : '记录本次复习。'}`;
+    $('planner-word-note').textContent = `${PLAN_LABELS[kind]}：${task.en}。请用卡片下方“不认识／有印象／认识”记录；选择认识后返回今日任务。`;
     switchView('learn');await DB.setSetting('preferredPack', state.packId);
   }
 }
@@ -1293,6 +1388,11 @@ function wirePlanner() {
   bind('close-today-session', 'click', () => { state.planSession = null;renderPlanSession(); });
   bind('today-session-speak', 'click', () => { const c = state.planSession, t = c && planTask(c.kind, c.key);if (t) speakText(t.en); });
   bind('today-session-open', 'click', () => { const c = state.planSession;return c && openPlannedTask(c.kind, c.key); });
+  for (const rating of ['unknown', 'vague', 'known']) bind(`today-memory-${rating}`, 'click', event => {
+    const context = state.planSession, task = context && planTask(context.kind, context.key);
+    if (!task || !['new', 'review'].includes(context.kind)) return;
+    return rateStudyWord(task, rating, { fromToday: true, date: context.date, button: event.currentTarget });
+  });
   bind('today-session-complete', 'click', async () => {
     const context = state.planSession;if (!context) return;
     $('today-session-complete').disabled = true;
