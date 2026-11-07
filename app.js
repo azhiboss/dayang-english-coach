@@ -3,6 +3,7 @@ import { TTS, DEFAULT_RATE } from './tts.js';
 import { SpeechInput, compareWords } from './asr.js';
 import { validatePack, expandedToPack, parseImport, readFileText, downloadJSON } from './import.js';
 import { Planner, dateKey, daysBetween } from './planner.js';
+import { GroupSession } from './group-session.js';
 
 const $ = id => document.getElementById(id);
 const speech = new SpeechInput();
@@ -20,6 +21,7 @@ const state = {
   offlineReady: false, waitingWorker: null, updateRequested: false,
   expanded: new Map(), dictionary: new Map(), vocabulary: new Map(), vocabLimit: 40,
   lookup: null, expandedError: '', unifiedError: '', unifiedAdded: false, memoryBusy: false,
+  groupSize: 5, wordRun: null,
   plan: null, plannerReady: false, planSession: null, plannedWord: null, plannedPractice: null, plannedScenario: null,
 };
 // Serialize attempt increments for the same learning item across both views.
@@ -48,7 +50,8 @@ function flatten(pack) {
 function progressFor(item) {
   return state.progress.get(key(item.packId, item.id)) || { status: 'new', favorite: false, attempts: 0, lastScore: null };
 }
-function currentItem() { return state.filtered[state.index] || null; }
+function currentItem() { return state.wordRun ? groupedCurrent()?.item || null : state.filtered[state.index] || null; }
+function groupedCurrent() { return state.wordRun?.sections[state.wordRun.index]?.session.current || null; }
 function wordRef(item) { return item ? `${item.packId}/${item.id || item.itemId}` : ''; }
 function isMemoryWord(item) { return Boolean(item && state.plannerReady && planner.catalog.aliases.has(wordRef(item))); }
 function memoryFor(item) { return isMemoryWord(item) ? planner.memoryFor(wordRef(item)) : null; }
@@ -166,8 +169,9 @@ function renderSummary() {
 function renderLearn(preferredId) {
   cancelLookupPress();
   closeLookup();
+  if (state.wordRun && state.wordRun.date !== dateKey()) cancelWordGroups();
   const query = $('course-search').value.trim().toLowerCase();
-  state.filtered = flatten(currentPack()).filter(item => {
+  state.filtered = state.wordRun ? (groupedCurrent() ? [groupedCurrent().item] : []) : flatten(currentPack()).filter(item => {
     if (query && !`${item.en} ${item.zh} ${examplesFor(item).map(example => `${example.en} ${example.zh}`).join(' ')}`.toLowerCase().includes(query)) return false;
     if (state.moduleId !== 'all' && item.moduleId !== state.moduleId) return false;
     const p = progressFor(item);
@@ -182,19 +186,21 @@ function renderLearn(preferredId) {
   const preferredIndex = preferredId ? state.filtered.findIndex(item => item.id === preferredId) : -1;
   state.index = preferredIndex >= 0 ? preferredIndex : Math.min(Math.max(state.index, 0), Math.max(0, state.filtered.length - 1));
   const item = currentItem();
+  renderWordGroups();
   if (state.plannedWord && (!item || `${item.packId}/${item.id}` !== state.plannedWord.key)) {
     state.plannedWord = null;$('planner-word-link').hidden = true;
   }
   const empty = !item;
   $('learning-card').hidden = empty;
-  $('learning-empty').hidden = !empty;
+  $('learning-empty').hidden = !empty || Boolean(state.wordRun);
   $('mark-actions').hidden = empty;
-  $('card-navigation').hidden = empty;
+  $('card-navigation').hidden = empty || Boolean(state.wordRun);
   $('memory-feedback').hidden = true;
   if (!item) { renderMemoryControls(null);return; }
   const p = progressFor(item);
   $('item-module').textContent = item.moduleName;
   $('item-position').textContent = `${state.index + 1} / ${state.filtered.length}`;
+  $('item-position').hidden = Boolean(state.wordRun);
   $('item-en').textContent = item.en;
   $('item-en').classList.toggle('is-long', item.en.length > 160);
   $('item-role').hidden = !item.role;
@@ -259,7 +265,7 @@ function renderMemoryControls(item) {
   for (const rating of ['unknown', 'vague', 'known']) {
     const button = $(`memory-${rating}`);
     button.hidden = !supported;
-    button.disabled = state.memoryBusy || Boolean(state.plan?.clockBack);
+    button.disabled = state.memoryBusy || Boolean(state.wordRun?.transitioning) || Boolean(state.plan?.clockBack);
     button.setAttribute('aria-pressed', String(memory?.currentStatus === rating || rating === 'known' && memory?.currentStatus === 'mastered'));
   }
   $('complete-planned-word').hidden = true;
@@ -292,10 +298,17 @@ function renderMemoryStats() {
 }
 
 async function rateStudyWord(item, rating, { context = null, date = dateKey(), fromToday = false, button = null } = {}) {
-  if (state.memoryBusy) return;
+  if (state.memoryBusy || state.wordRun?.transitioning) return;
   if (state.importing) throw new Error('正在导入，请完成后再记录记忆状态');
   if (!isMemoryWord(item)) throw new Error('这是一条句子或话术，请使用跟读练习');
   if (date !== dateKey()) { await refreshPlan();throw new Error('日期已变化，请重新选择今天的任务'); }
+  if (!state.wordRun) {
+    if (fromToday || context) await startWordGroups({ targetKey: wordRef(item) });
+    else startFreeWordGroups(item);
+  }
+  if (state.memoryBusy || state.wordRun?.transitioning) return;
+  const run = state.wordRun;
+  if (!run || groupedCurrent()?.item.key !== (planner.catalog.aliases.get(wordRef(item)) || wordRef(item))) throw new Error('词汇队列已变化，请重新选择');
   state.memoryBusy = true;
   for (const prefix of ['memory', 'today-memory']) for (const status of ['unknown', 'vague', 'known']) $(`${prefix}-${status}`).disabled = true;
   button?.classList.add('is-rating');
@@ -309,21 +322,120 @@ async function rateStudyWord(item, rating, { context = null, date = dateKey(), f
         state.progress.set(key(item.packId, item.id || item.itemId), record);
       });
     } catch (error) { toast(`记忆状态已保存，学习卡标记未同步：${errorMessage(error)}`); }
-    renderSummary();renderLearn(currentItem()?.id);
-    const message = rating === 'unknown' ? '没关系，多见面几次就熟了' : rating === 'vague' ? '继续加油，再记牢一些' : memory.currentStatus === 'mastered' ? `连续3天认识，已掌握！以后每周复习${memory.weeklyReviewCount}次` : '好的，明天再来复习你';
-    $('memory-feedback').textContent = `${item.en}：${message}`;$('memory-feedback').hidden = false;
-    toast(message);
-    if (rating === 'known' && (fromToday || context)) {
-      state.plannedWord = null;$('planner-word-link').hidden = true;
-      if (context) switchView('today');
-      if (state.plan.completion.allDone) { state.planSession = null;renderPlanSession(); }
-      else startTodaySession();
-    }
+    if (state.wordRun !== run || run.date !== dateKey()) return;
+    const step = run.sections[run.index].session.answer(rating);
+    const message = rating !== 'known' && step.previous.isChallenge ? '已保留后续日期复习，继续本轮下一词'
+      : rating === 'unknown' ? '已加入困难词，后续轮次再见' : rating === 'vague' ? '有印象的词会在后续轮次再练' : memory.currentStatus === 'mastered' ? `已掌握，以后每周目标复习${memory.weeklyReviewCount}次` : '已认识，今天后续轮次不再出现';
+    state.reveal = false;abortAudio();
+    if (step.complete) await finishWordSection(run);
+    else if (step.transition) showGroupTransition(run, step.transition.message);
+    else renderLearn();
+    toast(run.complete ? '本轮词汇学习完成，未熟悉的词保留到后续日期复习。' : `${item.en}：${message}`);
   } finally {
-    state.memoryBusy = false;renderMemoryControls(currentItem());renderPlanSession();
+    state.memoryBusy = false;renderMemoryControls(currentItem());renderPlanSession();renderWordGroups();
   }
 }
+function groupedStudyItem(task) {
+  const original = flatten(state.packs.find(pack => pack.id === task.packId)).find(item => item.id === task.itemId);
+  return { ...original, ...task, id: task.itemId, itemId: task.itemId };
+}
+function cancelWordGroups() {
+  clearTimeout(state.wordRun?.timer);
+  state.wordRun = null;state.plannedWord = null;$('planner-word-link').hidden = true;
+}
+function allowGroupRestart() {
+  if (state.memoryBusy) { toast('正在保存这次选择，请稍候。');return false; }
+  if (state.wordRun && !state.wordRun.complete && !window.confirm('调整设置会重新分组，已保存的记忆记录会保留。继续吗？')) return false;
+  cancelWordGroups();return true;
+}
+function installWordRun(sections) {
+  cancelWordGroups();
+  state.wordRun = { date: dateKey(), sections, index: 0, transitioning: false, complete: false, pendingFinish: false, timer: null };
+  state.planSession = null;state.reveal = false;
+  renderPlanSession();renderLearn();switchView('learn');
+}
+function startWordGroups({ targetKey = '' } = {}) {
+  if (state.importing || state.memoryBusy) return;
+  if (state.wordRun && state.wordRun.date !== dateKey()) cancelWordGroups();
+  if (state.wordRun && !state.wordRun.complete) {
+    if (state.wordRun.pendingFinish) return finishWordSection(state.wordRun);
+    switchView('learn');renderLearn();return;
+  }
+  if (!state.plan || state.plan.date !== dateKey()) return refreshPlan().then(() => startWordGroups({ targetKey }));
+  const canonical = planner.catalog.aliases.get(targetKey) || targetKey;
+  let sections = [['review', '今日到期复习', state.plan.tasks.reviews], ['new', '今日新词', state.plan.tasks.newWords]]
+    .map(([kind, label, tasks]) => ({ kind, label, items: tasks.filter(task => !task.done).map(groupedStudyItem) })).filter(section => section.items.length);
+  const targetSection = sections.find(section => section.items.some(item => item.key === canonical));
+  if (targetSection) {
+    sections = [targetSection, ...sections.filter(section => section !== targetSection)];
+    const index = targetSection.items.findIndex(item => item.key === canonical);
+    targetSection.items = [...targetSection.items.slice(index), ...targetSection.items.slice(0, index)];
+  }
+  if (!sections.length) return toast('今天的词汇任务已完成，可继续短句跟读或情景对练。');
+  installWordRun(sections.map(({ items, ...section }) => ({ ...section, session: new GroupSession({ items, groupSize: state.groupSize, date: state.plan.date }) })));
+}
+function startFreeWordGroups(item) {
+  const canonical = planner.catalog.aliases.get(wordRef(item));
+  const candidates = state.filtered.filter(isMemoryWord);
+  const start = Math.max(0, candidates.findIndex(candidate => wordRef(candidate) === wordRef(item)));
+  const rotated = [...candidates.slice(start), ...candidates.slice(0, start)];
+  const seen = new Set(), items = [];
+  for (const candidate of rotated.length ? rotated : [item]) {
+    const ref = planner.catalog.aliases.get(wordRef(candidate));
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);items.push({ ...candidate, key: ref, itemId: candidate.id });
+    if (items.length >= (state.plan?.dailyNew || 30)) break;
+  }
+  if (!items.length || items[0].key !== canonical) throw new Error('当前词汇未能加入分组，请重新选择');
+  installWordRun([{ kind: 'free', label: '当前范围练词', session: new GroupSession({ items, groupSize: state.groupSize, date: dateKey() }) }]);
+}
+function renderWordGroups() {
+  const run = state.wordRun, current = groupedCurrent();
+  $('group-progress').hidden = !run || run.complete;
+  $('group-review-label').hidden = !current?.isReview;
+  $('group-transition').hidden = !run?.transitioning;
+  $('group-finished').hidden = !run?.complete;
+  $('group-finished-title').textContent = run?.sections.some(section => section.kind === 'free') ? '当前范围的词汇循环，完成了！' : '今天的词汇循环，完成了！';
+  $('start-word-groups').hidden = Boolean(run) && !run.pendingFinish;
+  $('start-word-groups').textContent = run?.pendingFinish ? '重试保存本轮完成状态' : '开始分组学习';
+  $('start-word-groups').disabled = state.memoryBusy || Boolean(run?.savingSection) || Boolean(state.plan?.clockBack);
+  $('exit-word-groups').hidden = !run;
+  for (const id of ['pack-select', 'module-filter', 'status-filter', 'course-search']) $(id).disabled = Boolean(run);
+  if (!current || !run) return;
+  const section = run.sections[run.index];
+  $('group-progress').textContent = `${section.label} · ${current.isChallenge ? `终极挑战 · 单词 ${current.reviewIndex} / ${current.reviewCount}` : `第 ${current.groupIndex} 组 / 共 ${current.groupCount} 组 · ${current.isReview ? `困难词 ${current.reviewIndex} / ${current.reviewCount}` : `新词 ${current.wordIndex} / ${current.newCount}`}`}`;
+  $('group-review-label').textContent = `🔁 复习第 ${current.originRound} 轮困难词${current.isChallenge ? ' · 终极挑战' : ''}`;
+}
+function showGroupTransition(run, message) {
+  run.transitioning = true;$('group-transition').textContent = message;
+  renderLearn();renderMemoryControls(currentItem());
+  clearTimeout(run.timer);
+  run.timer = setTimeout(() => {
+    if (state.wordRun !== run) return;
+    if (run.date !== dateKey()) { cancelWordGroups();renderLearn();return; }
+    run.transitioning = false;state.reveal = false;renderLearn();
+  }, 1200);
+}
+async function finishWordSection(run) {
+  if (run.savingSection) return;
+  run.savingSection = true;
+  run.pendingFinish = true;
+  try {
+    await queuePlanner(() => planner.completeWordRound(run.sections[run.index].session.allKeys, run.date));
+    if (state.wordRun !== run) return;
+    run.pendingFinish = false;
+    if (run.index + 1 < run.sections.length) {
+      const previous = run.sections[run.index].label;run.index += 1;
+      showGroupTransition(run, `🎉 ${previous}完成！即将开始${run.sections[run.index].label}`);
+    } else {
+      run.complete = true;run.transitioning = false;state.reveal = false;renderLearn();
+      toast('本轮词汇学习完成！仍不熟悉的词会保留复习安排。');
+    }
+  } catch (error) { renderLearn();throw error; }
+  finally { run.savingSection = false;if (state.wordRun === run) renderWordGroups(); }
+}
 function moveItem(direction) {
+  if (state.wordRun) return toast('分组学习中，请选择记忆程度后进入下一词。');
   abortAudio();
   state.reveal = false;
   if (direction === 'random' && state.filtered.length > 1) {
@@ -702,6 +814,7 @@ async function confirmImport() {
   $('confirm-import').disabled = true;
   $('cancel-import').disabled = true;
   abortAudio();
+  cancelWordGroups();
   try {
     await flushStudyTime({ force: true });
     await queuePlannerWrite(() => candidate.kind === 'course' ? DB.putPack(candidate.pack) : DB.restoreBackup(candidate.backup));
@@ -718,10 +831,11 @@ async function confirmImport() {
 }
 
 async function reloadData(preferredId) {
-  const [packs, progress, words, rate, voiceURI, theme, savedPack, vocabulary] = await Promise.all([
+  cancelWordGroups();
+  const [packs, progress, words, rate, voiceURI, theme, savedPack, vocabulary, groupSize] = await Promise.all([
     DB.listPacks(), DB.listProgress(), DB.listWeakWords(), DB.getSetting('rate', DEFAULT_RATE),
     DB.getSetting('voiceURI', ''), DB.getSetting('theme', 'system'), DB.getSetting('preferredPack', ''),
-    DB.listVocabulary(),
+    DB.listVocabulary(), DB.getSetting('groupSize', 5),
   ]);
   state.packs = packs;
   state.progress = new Map(progress.map(record => [key(record.packId, record.itemId), record]));
@@ -731,6 +845,8 @@ async function reloadData(preferredId) {
   state.rate = Number.isFinite(rate) ? Math.max(0.6, Math.min(1, rate)) : DEFAULT_RATE;
   state.voiceURI = typeof voiceURI === 'string' ? voiceURI : '';
   state.theme = ['system','light','dark'].includes(theme) ? theme : 'system';
+  state.groupSize = [3,5,10].includes(groupSize) ? groupSize : 5;
+  $('group-size').value = String(state.groupSize);
   state.moduleId = 'all';state.index = 0;state.reveal = false;
   $('speech-rate').value = state.rate;
   $('rate-value').textContent = `${state.rate.toFixed(2)}×`;
@@ -780,6 +896,12 @@ async function setupServiceWorker() {
 function wireEvents() {
   wireDictionary();
   wirePlanner();
+  bind('start-word-groups', 'click', () => startWordGroups());
+  bind('exit-word-groups', 'click', () => {
+    if (state.memoryBusy) return toast('正在保存这次选择，请稍候。');
+    cancelWordGroups();renderLearn();
+  });
+  bind('group-return-today', 'click', () => { cancelWordGroups();renderLearn();switchView('today'); });
   document.querySelectorAll('.bottom-nav [data-view]').forEach(button => {
     button.addEventListener('click', () => switchView(button.dataset.view));
     button.addEventListener('keydown', e => {
@@ -807,7 +929,7 @@ function wireEvents() {
   bind('previous-item','click',() => moveItem(-1));bind('next-item','click',() => moveItem(1));bind('random-item','click',() => moveItem('random'));
   for (const rating of ['unknown', 'vague', 'known']) bind(`memory-${rating}`, 'click', event => rateStudyWord(currentItem(), rating, { context: state.plannedWord, button: event.currentTarget }));
   bind('mark-favorite','click',() => markItem('favorite'));
-  const applyFilter = filter => { state.filter = filter;state.index = 0;state.reveal = false;$('status-filter').value = filter;renderLearn();switchView('learn'); };
+  const applyFilter = filter => { if (state.wordRun) { toast('请先退出分组，再切换学习范围。');return; }state.filter = filter;state.index = 0;state.reveal = false;$('status-filter').value = filter;renderLearn();switchView('learn'); };
   bind('summary-mastered','click',() => applyFilter('mastered'));bind('summary-review','click',() => applyFilter('review'));bind('summary-favorite','click',() => applyFilter('favorite'));
   bind('reset-filters','click',() => { state.moduleId = 'all';$('course-search').value = '';$('module-filter').value = 'all';applyFilter('all'); });
   bind('speech-rate','input',e => { state.rate = Number(e.target.value);$('rate-value').textContent = `${state.rate.toFixed(2)}×`; });
@@ -1268,6 +1390,9 @@ function renderPlanner() {
   $('agenda-review-note').textContent = `不认识优先，其次有印象、观察期；今天最多${plan.review.limit}个，超额顺延。连续3个日期认识后掌握，按来源每周复习2／4／6次。`;
   $('agenda-scenario-note').textContent = plan.tasks.scenario ? `本次安排：${sceneInfo[plan.tasks.scenario.scene]?.title || '客户沟通'}。周二、周四、周六安排，漏练时优先接续一场。` : plan.nextScenarioDate ? `下一次安排在${readableDate(plan.nextScenarioDate, true)}。` : '导入含展会、谈判或客诉情景的课程后，会自动安排。';
   renderAgenda('review', plan.tasks.reviews);renderAgenda('new', plan.tasks.newWords);renderAgenda('sentence', plan.tasks.sentences);renderAgenda('scenario', plan.tasks.scenario ? [plan.tasks.scenario] : []);
+  if (![...$('planner-daily-new').options].some(option => option.value === String(plan.dailyNew))) {
+    const legacy = node('option', '', `${plan.dailyNew} 个 · 保留旧设置`);legacy.value = String(plan.dailyNew);$('planner-daily-new').append(legacy);
+  }
   $('planner-daily-new').value = String(plan.dailyNew);
   $('planner-celebration').hidden = !plan.completion.allDone;
   if (!plan.completion.allDone) $('planner-celebration').classList.remove('is-celebrating');
@@ -1296,9 +1421,13 @@ function renderPlanSession() {
   $('today-session-complete').disabled = task.done || state.plan.clockBack;
 }
 function startTodaySession() {
+  if (!state.plan || state.plan.date !== dateKey()) return refreshPlan().then(() => startTodaySession());
+  if (state.wordRun && state.wordRun.date !== dateKey()) cancelWordGroups();
+  if (state.wordRun && !state.wordRun.complete) { switchView('learn');renderLearn();return; }
   if (state.plan?.completion.allDone) { switchView('learn');return; }
   const task = allPlanTasks().find(task => !task.done);
   if (!task) return toast('今天暂无待做任务，可先导入课程或自由学习。');
+  if (['new', 'review'].includes(task.kind)) return startWordGroups();
   state.planSession = { kind: task.kind, key: task.key, date: state.plan.date };
   $('today-session-meaning').open = false;
   renderPlanSession();$('today-session').scrollIntoView({ block: 'start', behavior: 'auto' });$('today-session-open').focus({ preventScroll: true });
@@ -1333,11 +1462,7 @@ async function openPlannedTask(kind, taskKey) {
     state.plannedPractice = context;$('planner-practice-link').hidden = false;
     $('planner-practice-note').textContent = '这是今日安排的短句。听读并练习后，点击完成即可计入今日任务。';switchView('practice');
   } else {
-    state.packId = task.packId;state.moduleId = 'all';state.filter = 'all';state.index = 0;state.reveal = true;
-    $('course-search').value = '';renderPackControls();renderSummary();renderLearn(task.itemId);
-    state.plannedWord = context;$('planner-word-link').hidden = false;
-    $('planner-word-note').textContent = `${PLAN_LABELS[kind]}：${task.en}。请用卡片下方“不认识／有印象／认识”记录；选择认识后返回今日任务。`;
-    switchView('learn');await DB.setSetting('preferredPack', state.packId);
+    return startWordGroups({ targetKey: taskKey });
   }
 }
 async function completeAndReturn(context) {
@@ -1419,7 +1544,16 @@ function wirePlanner() {
   bind('planner-daily-new', 'change', async event => {
     if (state.importing) { event.target.value = String(state.plan.dailyNew);throw new Error('导入完成后可调整学习计划'); }
     const amount = Number(event.target.value);event.target.disabled = true;
+    if (!allowGroupRestart()) { event.target.value = String(state.plan.dailyNew);event.target.disabled = false;return; }
     try { await queuePlanner(() => planner.setDailyNew(amount));toast(`每天安排${amount}个新词，已完成的任务保留。`); }
+    finally { event.target.disabled = false; }
+  });
+  bind('group-size', 'change', async event => {
+    if (state.importing) { event.target.value = String(state.groupSize);throw new Error('导入完成后可调整分组'); }
+    const value = Number(event.target.value);
+    if (!allowGroupRestart()) { event.target.value = String(state.groupSize);return; }
+    event.target.disabled = true;
+    try { await DB.setSetting('groupSize', value);state.groupSize = value;renderLearn();toast(`每组${value}个，下次开始按新大小分组。`); }
     finally { event.target.disabled = false; }
   });
   bind('reset-planner', 'click', async () => {
@@ -1427,7 +1561,7 @@ function wirePlanner() {
     if (!window.confirm('从今天重新开始每日计划？计划、打卡与计划用时会重置。原有课程、掌握标记、收藏和生词本保留。建议先导出备份。')) return;
     $('reset-planner').disabled = true;
     try {
-      await flushStudyTime();state.planSession = null;state.plannedWord = null;state.plannedPractice = null;state.plannedScenario = null;lastCelebration = '';
+      cancelWordGroups();await flushStudyTime();state.planSession = null;state.plannedWord = null;state.plannedPractice = null;state.plannedScenario = null;lastCelebration = '';
       $('planner-word-link').hidden = true;$('planner-practice-link').hidden = true;$('planner-scenario-link').hidden = true;
       await queuePlanner(() => planner.reset());studyClock.pending.clear();studyClock.lastActivity = 0;studyClock.lastSample = Date.now();toast('计划已从今天重新开始，原有课程和词本保留。');
     } finally { $('reset-planner').disabled = false; }

@@ -90,19 +90,35 @@
 
           <section class="planner-statistics" aria-labelledby="planner-statistics-title"><h3 id="planner-statistics-title">你的学习积累</h3><dl class="planner-stat-grid"><div><dt>累计学习天数</dt><dd id="planner-study-days">0 天</dd></div><div><dt>累计掌握词汇</dt><dd id="planner-mastered">0 个</dd></div><div><dt>本周学习时长</dt><dd id="planner-week-time">0 分钟</dd></div><div><dt>已学新词</dt><dd id="planner-learned">0 个</dd></div></dl><div class="planner-estimate"><span>预计全部词汇进入已掌握</span><strong id="planner-finish-date">计算中</strong><p id="planner-estimate-note" class="supporting-text"></p></div><p class="supporting-text">连续三个自然日选择“认识”才计为已掌握；掌握后仍会按来源安排每周复习。前台学习时计时，闲置90秒或切到后台会暂停。</p></section>
 
-          <details id="planner-options" class="planner-options"><summary>调整学习计划</summary><label for="planner-daily-new">每天的新词数量</label><select id="planner-daily-new"><option value="5">5 个 · 轻量开始</option><option value="10" selected>10 个 · 日常节奏</option><option value="15">15 个 · 稳步提升</option><option value="20">20 个 · 加强练习</option><option value="30">30 个 · 强化训练</option></select><p class="supporting-text">未完成的新词优先延续，再补足当日额度；已完成的任务保留。调整不会改变已学词的复习日期。</p><button id="reset-planner" class="button button-secondary" type="button">重置学习计划</button><p class="supporting-text">从今天重新排课，清除计划、打卡和计划用时；原有课程、掌握标记、收藏与生词本保留。跨设备可通过“数据”页导出、恢复JSON备份。</p></details>
+          <details id="planner-options" class="planner-options">
+            <summary>调整学习计划</summary>
+            <div class="group-plan-fields">
+              <label class="group-plan-field" for="planner-daily-new">每天的新词数量<select id="planner-daily-new"><option value="10">10 个 · 轻量开始</option><option value="20">20 个 · 稳步提升</option><option value="30" selected>30 个 · 日常节奏</option><option value="40">40 个 · 加强训练</option></select></label>
+              <label class="group-plan-field" for="group-size">每组大小<select id="group-size"><option value="3">3 个 · 小组练习</option><option value="5" selected>5 个 · 默认分组</option><option value="10">10 个 · 集中练习</option></select></label>
+            </div>
+            <p class="supporting-text">不足一组也会正常安排。每组先学新词，再练前组困难词；最后还有一轮终极挑战。修改进行中的设置会提示重新分组。</p>
+            <p class="supporting-text">未完成的新词优先延续，再补足当日额度；已完成的任务保留。新设置不会改变既有记忆记录。</p>
+            <button id="reset-planner" class="button button-secondary" type="button">重置学习计划</button>
+            <p class="supporting-text">从今天重新排课，清除计划、打卡和计划用时；原有课程、掌握标记、收藏与生词本保留。跨设备可通过“数据”页导出、恢复JSON备份。</p>
+          </details>
         </section>
 
         <section id="panel-learn" class="view-panel" role="tabpanel" aria-labelledby="tab-learn" hidden>
           <div class="section-heading"><div><p class="section-caption">随时练好下一次沟通</p><h2>今天，先讲清一句。</h2></div></div>
+          <div class="group-study-toolbar"><button id="start-word-groups" class="button" type="button">开始分组学习</button><button id="exit-word-groups" class="button button-secondary" type="button" hidden>退出分组</button></div>
+          <p id="group-session-help" class="supporting-text group-session-help">点任何记忆按钮都会进入下一词；困难词会在后续组末尾再出现。</p>
           <div id="planner-word-link" class="planner-linked-task" hidden><p id="planner-word-note">这是今日计划中的词汇。</p><button id="complete-planned-word" class="button button-secondary" type="button">✅ 学习完成，返回今日任务</button></div>
           <div class="filters">
             <label>学习模块<select id="module-filter"></select></label>
             <label>学习范围<select id="status-filter"><option value="all">全部内容</option><option value="new">还未掌握</option><option value="review">待复习</option><option value="unknown">不认识 · 加强复习</option><option value="vague">有印象 · 继续巩固</option><option value="known">认识 · 观察期</option><option value="mastered">已掌握</option><option value="favorite">我的收藏</option></select></label>
           </div>
           <label class="sr-only" for="course-search">搜索词汇、同义表达或中文意思</label><input id="course-search" type="search" placeholder="搜索词汇、客户表达或中文意思…" autocomplete="off">
+          <section id="group-finished" class="group-finished" aria-labelledby="group-finished-title" hidden><span class="group-finished-check" aria-hidden="true">✓</span><h3 id="group-finished-title">今天的词汇循环，完成了！</h3><p>暂未记牢的词仍会保留复习安排。回到今日任务，还可以继续跟读和情景练习。</p><button id="group-return-today" class="button button-secondary" type="button">返回今日任务</button></section>
           <div class="learning-layout">
             <div>
+              <p id="group-progress" class="group-progress" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+              <p id="group-review-label" class="group-review-label" hidden></p>
+              <div id="group-transition" class="group-transition" role="status" aria-live="polite" aria-atomic="true" hidden></div>
               <article id="learning-card" class="learning-card">
                 <div class="card-meta"><span id="item-module" class="module-label"></span><span id="item-position"></span></div>
                 <span id="item-role" class="role-label" hidden></span>

@@ -1,8 +1,8 @@
 /* Local calendar scheduling. No network, DOM, notifications, or cloud services. */
 import { applyMemoryRating, migrateMemory, memoryDue, memoryPriority, memoryStats } from './memory.js';
 export const REVIEW_INTERVALS = Object.freeze([1, 2, 4, 7, 15, 30]);
-export const DAILY_NEW_OPTIONS = Object.freeze([5, 10, 15, 20, 30]);
-export const DEFAULT_DAILY_NEW = 10;
+export const DAILY_NEW_OPTIONS = Object.freeze([5, 10, 15, 20, 30, 40]);
+export const DEFAULT_DAILY_NEW = 30;
 const DAY_MS = 86400000;
 const SENTENCES_PER_DAY = 4;
 const FORECAST_DAYS = 5000;
@@ -338,8 +338,28 @@ export class Planner {
     if (!['unknown', 'vague', 'known'].includes(rating)) throw new Error('请选择不认识、有印象或认识');
     return this._update((state, day, today) => this._rateInState(state, day, key, rating, today), date);
   }
+  async completeWordRound(keys, date) {
+    if (!Array.isArray(keys) || keys.length > 10000) throw new Error('本轮词汇须为不超过10000项的引用列表');
+    const canonicalKeys = unique(keys.map(key => {
+      if (typeof key !== 'string') throw new Error('本轮词汇引用无效');
+      const canonical = this.catalog.aliases.get(key) || key;
+      if (!this.catalog.wordMap.has(canonical)) throw new Error('本轮词汇已变化，请重新开始学习');
+      return canonical;
+    }));
+    return this._update((state, day) => {
+      for (const [assigned, done] of [['newKeys', 'doneNew'], ['reviewKeys', 'doneReviews']]) {
+        for (const key of canonicalKeys) {
+          if (!day[assigned].includes(key) || day[done].includes(key)) continue;
+          if (!day.memoryRatedKeys?.includes(key)) throw new Error('请先完成本轮词汇评级，再结束学习');
+          // A finished round is not a "known" rating: unresolved words remain
+          // unknown/vague in memory and are due again on the following day.
+          day[done].push(key);
+        }
+      }
+    }, date);
+  }
   async setDailyNew(amount) {
-    if (!DAILY_NEW_OPTIONS.includes(Number(amount))) throw new Error('每天新词量可选5、10、15、20或30个');
+    if (!DAILY_NEW_OPTIONS.includes(Number(amount))) throw new Error('每天新词量可选10、20、30或40个，原有5／15设置也可继续使用');
     return this._update(state => { state.dailyNew = Number(amount); });
   }
   async recordTime(seconds, date) {

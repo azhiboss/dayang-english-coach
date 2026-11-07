@@ -4,7 +4,7 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const SCENES = new Set(['exhibition', 'negotiation', 'complaint']);
 const STATUSES = new Set(['new', 'mastered', 'review']);
-const SETTINGS = new Set(['rate', 'voiceURI', 'theme', 'preferredPack']);
+const SETTINGS = new Set(['rate', 'voiceURI', 'theme', 'preferredPack', 'groupSize']);
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const fail = (path, message) => { throw new Error(`${path}：${message}`); };
 
@@ -270,12 +270,13 @@ export function validateWeakWordRecord(raw, path = '弱项词记录') {
 export function validateSettingRecord(raw, path = '设置') {
   safeTree(raw, path);
   keys(raw, ['key', 'value'], path);
-  if (typeof raw.key !== 'string' || !SETTINGS.has(raw.key)) fail(`${path}.key`, '只支持rate、voiceURI、theme、preferredPack设置');
+  if (typeof raw.key !== 'string' || !SETTINGS.has(raw.key)) fail(`${path}.key`, '只支持rate、voiceURI、theme、preferredPack、groupSize设置');
   let value = raw.value;
   if (raw.key === 'rate' && (typeof value !== 'number' || !Number.isFinite(value) || value < 0.6 || value > 1)) fail(`${path}.value`, '语速须为0.6—1.0之间的有限数值');
   if (raw.key === 'voiceURI') value = text(value, `${path}.value`, 1000, { empty: true, multiline: false });
   if (raw.key === 'theme' && !['system', 'light', 'dark'].includes(value)) fail(`${path}.value`, '主题仅支持system、light或dark');
   if (raw.key === 'preferredPack') value = value === '' || value === null ? value : id(value, `${path}.value`);
+  if (raw.key === 'groupSize' && ![3, 5, 10].includes(value)) fail(`${path}.value`, '每组大小只支持3、5或10');
   return { key: raw.key, value };
 }
 
@@ -341,7 +342,7 @@ export function validatePlannerState(raw, path = '学习计划') {
   keys(raw, ['schemaVersion', 'memoryVersion', 'startedOn', 'dailyNew', 'learned', 'days', 'updatedAt'], path);
   if (raw.schemaVersion !== 1) fail(`${path}.schemaVersion`, '不支持此学习计划版本');
   if (own(raw, 'memoryVersion') && raw.memoryVersion !== 1) fail(`${path}.memoryVersion`, '不支持此记忆记录版本');
-  if (![5, 10, 15, 20, 30].includes(raw.dailyNew)) fail(`${path}.dailyNew`, '每日新学量只支持5、10、15、20或30');
+  if (![5, 10, 15, 20, 30, 40].includes(raw.dailyNew)) fail(`${path}.dailyNew`, '每日新学量只支持10、20、30或40，兼容旧5／15设置');
   const startedOn = calendarDate(raw.startedOn, `${path}.startedOn`);
   const updatedAt = timestamp(raw.updatedAt, `${path}.updatedAt`);
   object(raw.learned, `${path}.learned`);
@@ -381,7 +382,7 @@ export function validatePlannerState(raw, path = '学习计划') {
     calendarDate(date, `${dayPath}.key`);
     keys(entry, ['date', 'newKeys', 'reviewKeys', 'sentenceKeys', 'scenarioKey', 'doneNew', 'doneReviews', 'doneSentences', 'scenarioDone', 'seconds', 'celebrated', 'completedAt', 'memoryRatedKeys'], dayPath);
     if (entry.date !== date) fail(`${dayPath}.date`, '日期必须与记录键一致');
-    const newKeys = plannerReferences(entry.newKeys, `${dayPath}.newKeys`, 30);
+    const newKeys = plannerReferences(entry.newKeys, `${dayPath}.newKeys`, 40);
     const reviewKeys = plannerReferences(entry.reviewKeys, `${dayPath}.reviewKeys`, 75);
     const sentenceKeys = plannerReferences(entry.sentenceKeys, `${dayPath}.sentenceKeys`, 5, true);
     const completed = (name, scheduled, max, sentence = false) => {
@@ -393,7 +394,7 @@ export function validatePlannerState(raw, path = '学习计划') {
     days[date] = {
       date, newKeys, reviewKeys, sentenceKeys,
       scenarioKey: entry.scenarioKey === null ? null : plannerReference(entry.scenarioKey, `${dayPath}.scenarioKey`),
-      doneNew: completed('doneNew', newKeys, 30),
+      doneNew: completed('doneNew', newKeys, 40),
       doneReviews: completed('doneReviews', reviewKeys, 75),
       doneSentences: completed('doneSentences', sentenceKeys, 5, true),
       scenarioDone: entry.scenarioDone,
@@ -449,7 +450,7 @@ export function validateBackup(raw) {
     return record;
   });
   const settingKeys = new Set();
-  const settings = array(raw.settings, '备份.settings', 4).map((entry, index) => {
+  const settings = array(raw.settings, '备份.settings', SETTINGS.size).map((entry, index) => {
     const path = `备份.settings[${index}]`;
     const record = validateSettingRecord(entry, path);
     if (settingKeys.has(record.key)) fail(path, '设置项重复');

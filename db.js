@@ -3,7 +3,7 @@ import { LIMITS, validatePack, validateBackup, validateProgressRecord, validateW
 const DATABASE_NAME = 'dayang-english-coach';
 const DATABASE_VERSION = 3;
 const STORE_NAMES = ['packs', 'progress', 'weakWords', 'settings', 'vocabulary', 'planner'];
-const SETTING_KEYS = new Set(['rate', 'voiceURI', 'theme', 'preferredPack']);
+const SETTING_KEYS = new Set(['rate', 'voiceURI', 'theme', 'preferredPack', 'groupSize']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 let connection = null;
 let opening = null;
@@ -13,7 +13,7 @@ function assertId(value, label = 'ID') {
 }
 
 function assertSettingKey(key) {
-  if (!SETTING_KEYS.has(key)) throw new Error('设置仅支持rate、voiceURI、theme和preferredPack');
+  if (!SETTING_KEYS.has(key)) throw new Error('设置仅支持rate、voiceURI、theme、preferredPack和groupSize');
 }
 
 function storageError(error, operation = 'IndexedDB操作') {

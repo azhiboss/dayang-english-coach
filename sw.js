@@ -1,7 +1,7 @@
 /* App-shell caching only. Imported courses and progress belong in IndexedDB. */
 'use strict';
 
-const VERSION = '2026.11.11';
+const VERSION = '2026.11.12';
 const SCOPE_URL = self.registration.scope;
 
 function scopeHash(value) {
@@ -23,6 +23,7 @@ const APP_SHELL = [
   './app.js',
   './planner.js',
   './memory.js',
+  './group-session.js',
   './db.js',
   './tts.js',
   './asr.js',
