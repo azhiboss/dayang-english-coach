@@ -106,7 +106,7 @@
         <section id="panel-learn" class="view-panel" role="tabpanel" aria-labelledby="tab-learn" hidden>
           <div class="section-heading"><div><p class="section-caption">随时练好下一次沟通</p><h2>今天，先讲清一句。</h2></div></div>
           <div class="group-study-toolbar"><button id="start-word-groups" class="button" type="button">开始分组学习</button><button id="exit-word-groups" class="button button-secondary" type="button" hidden>退出分组</button></div>
-          <p id="group-session-help" class="supporting-text group-session-help">点任何记忆按钮都会进入下一词；困难词会在后续组末尾再出现。</p>
+          <p id="group-session-help" class="supporting-text group-session-help">选择记忆程度后先核对释义，再点“下一个”；困难词会在后续组末尾再出现。</p>
           <div id="planner-word-link" class="planner-linked-task" hidden><p id="planner-word-note">这是今日计划中的词汇。</p><button id="complete-planned-word" class="button button-secondary" type="button">✅ 学习完成，返回今日任务</button></div>
           <div class="filters">
             <label>学习模块<select id="module-filter"></select></label>
@@ -132,6 +132,14 @@
                   <button id="practice-current" class="button button-link" type="button">去跟读</button>
                 </div>
                 <div id="item-meaning" class="meaning-block" hidden><p id="item-zh"></p><div id="example-block" class="example-block" hidden><span class="field-label">用在客户沟通中</span><p class="supporting-text">点击英文单词查释义与音标，长按500毫秒直接收藏。可逐句朗读和跟读。</p><div id="examples-list"></div><p hidden id="item-example" lang="en-US"></p><p hidden id="item-example-zh"></p><button hidden id="speak-example" class="button button-link" type="button">🔊 朗读例句</button></div></div>
+                <section id="recall-answer" class="recall-answer" aria-label="核对本词释义" hidden>
+                  <p id="recall-answer-rating" class="recall-answer-rating"></p>
+                  <span class="recall-answer-label">中文释义</span><p id="recall-answer-zh" class="recall-answer-zh"></p>
+                  <p id="recall-answer-phonetic" class="recall-answer-phonetic" lang="en" aria-label="音标" hidden></p>
+                  <p id="recall-answer-example" class="recall-answer-example" lang="en-US" hidden></p>
+                  <p id="recall-answer-example-zh" class="recall-answer-example-zh" hidden></p>
+                  <button id="confirm-word-next" class="button recall-next" type="button" aria-controls="learning-card">➡️ 下一个</button>
+                </section>
               </article>
               <div id="learning-empty" class="empty-state" hidden><h3>这个范围暂时没有内容</h3><p>试试其他模块，或先把句子标记为待复习、收藏。</p><button id="reset-filters" class="button" type="button">查看全部内容</button></div>
               <div class="mark-actions" id="mark-actions">

@@ -1318,3 +1318,18 @@ html[data-theme=dark] .toast {
 @media(max-width:359px) { .group-study-toolbar { gap:8px; }.group-study-toolbar .button { flex:1;padding-inline:9px; }.group-progress { padding:10px 11px;font-size:.84rem; }.group-finished { padding:21px 17px; } }
 @media(prefers-reduced-motion:reduce) { .group-transition { animation:none; } }
 @media print { .group-study-toolbar,.group-session-help,.group-transition,.group-finished { display:none!important; } }
+
+/* Reveal confirms the saved judgment without advancing the current queue. */
+.recall-answer { min-width:0;padding:18px;margin-top:21px;border:1px solid var(--rule);border-left:3px solid var(--brand);border-radius:12px;background:var(--soft);color:var(--ink); }
+.recall-answer.is-revealing { animation:recall-answer-in .3s ease-out; }
+.recall-answer-rating { width:fit-content;max-width:100%;margin:0 0 13px;padding:4px 9px;border:1px solid var(--rule);border-radius:99px;background:var(--paper);color:var(--brand-dark);font-size:.78rem;font-weight:650;line-height:1.5; }
+.recall-answer-label { display:block;margin-bottom:5px;color:var(--muted);font-size:.75rem;font-weight:650; }
+.recall-answer-zh { margin:0;font-size:.95rem;line-height:1.8;white-space:pre-line;overflow-wrap:anywhere; }
+.recall-answer-phonetic { margin:12px 0 0;color:var(--brand-dark);font-size:.9rem;line-height:1.65;overflow-wrap:anywhere; }
+.recall-answer-example { margin:15px 0 0;padding-top:13px;border-top:1px solid var(--rule);font-size:.93rem;line-height:1.75;overflow-wrap:anywhere; }
+.recall-answer-example-zh { margin:5px 0 0;color:var(--muted);font-size:.85rem;line-height:1.75;overflow-wrap:anywhere; }
+.recall-answer .recall-next { display:block;width:100%;min-height:52px;margin-top:18px;font-size:1rem; }
+@keyframes recall-answer-in { from { opacity:0;transform:translateY(-6px); } to { opacity:1;transform:translateY(0); } }
+@media(max-width:359px) { .recall-answer { padding:15px 13px; }.recall-answer-zh { font-size:.91rem; }.recall-answer-example { font-size:.89rem; } }
+@media(prefers-reduced-motion:reduce) { .recall-answer.is-revealing { animation:none; } }
+@media print { .recall-answer .recall-next { display:none!important; } }
